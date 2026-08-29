@@ -34,9 +34,15 @@ def _hash(link: str) -> str:
 
 # Una linea que es SOLO plata: "$150.000", "150.000", "$1.200.000".
 SOLO_PLATA = re.compile(r"^\s*\$?\s*[\d.,]+\s*$")
-# Facebook cierra la tarjeta con "Comuna, RM". Eso es donde esta el equipo, y
-# es lo que necesitas para mandar a alguien a buscarlo.
-COMUNA = re.compile(r"^(.{2,40}),\s*(RM|R\.M\.|Región.*|Metropolitana)$", re.I)
+# Facebook cierra la tarjeta con "Comuna, REGION". Eso es donde esta el equipo,
+# y es lo que necesitas para mandar a alguien a buscarlo.
+#
+# La sigla de region NO es solo RM: Concon sale como "Concón, VS" (Valparaiso),
+# Concepcion como "BI" (Biobio), y asi. Con el patron viejo esas quedaban
+# pegadas al titulo. Se acepta cualquier sigla de 2-3 mayusculas, que es el
+# formato que usa FB, o el nombre de region escrito completo.
+COMUNA = re.compile(
+    r"^(.{2,40}),\s*([A-ZÁÉÍÓÚÑ]{2,3}|R\.M\.|Regi[oó]n\b.*|Metropolitana)$")
 
 
 def _lineas(txt: str) -> list[str]:
@@ -122,7 +128,15 @@ def correr() -> str:
                 fila = q1(
                     """INSERT INTO item_raw (fuente, url, id_externo, titulo, precio, crudo, hash)
                        VALUES (%s,%s,%s,%s,%s,%s,%s)
-                       ON CONFLICT (hash) DO UPDATE SET visto_en = now()
+                       ON CONFLICT (hash) DO UPDATE SET
+                         visto_en = now(),
+                         titulo = EXCLUDED.titulo,
+                         crudo = item_raw.crudo || EXCLUDED.crudo,
+                         -- Si el precio cambio, se vuelve a normalizar: es
+                         -- otro trato, no el mismo. Igual que en fetch_ml.
+                         normalizado = CASE WHEN item_raw.precio IS DISTINCT FROM EXCLUDED.precio
+                                            THEN false ELSE item_raw.normalizado END,
+                         precio = EXCLUDED.precio
                        RETURNING (xmax = 0) AS nuevo""",
                     (fid, f"https://www.facebook.com{href}", href,
                      titulo, precio,

@@ -150,14 +150,60 @@ def probar_ofertas() -> int:
     return fallos
 
 
+
+# ------------------------------------------------- 4. tarjetas de Marketplace
+# La tarjeta trae el precio, a veces el precio ANTERIOR tachado, el titulo y
+# la comuna, todo en lineas sueltas. Leerla mal cuesta plata dos veces: el
+# precio equivocado arruina el multiplo, y el titulo sucio arruina la
+# identificacion (un "170.000" pegado adelante entra como si fuera una spec).
+CASOS_TARJETA = [
+    ("$15.000\nCargador original Lenovo 90W\nLa Pintana, RM",
+     15000, "Cargador original Lenovo 90W", "La Pintana", "lo normal"),
+    ("$150.000\n$170.000\nNotebook Lenovo nuevo\nRecoleta, RM",
+     150000, "Notebook Lenovo nuevo", "Recoleta", "bajo el precio: vale el primero"),
+    ("$15.000\nCargador Neteboock Dell\nConcón, VS",
+     15000, "Cargador Neteboock Dell", "Concón", "region que no es la RM"),
+    ("$99.000\nNotebook HP\nConcepción, BI",
+     99000, "Notebook HP", "Concepción", "Biobio"),
+    # El que rompio la primera version: partia "90W" en "90" + "w La Pintana".
+    ("$70.000\nThinkPad T420 16GB, 512GB SSD",
+     70000, "ThinkPad T420 16GB, 512GB SSD", None, "specs con coma NO son comuna"),
+    ("$22.000\nCargador Dell 65W tipo C original\nQuinta Normal, RM",
+     22000, "Cargador Dell 65W tipo C original", "Quinta Normal", "watts no se cortan"),
+]
+
+
+def probar_tarjetas() -> int:
+    from app.jobs.fetch_fb import _precio, _titulo_y_comuna
+    fallos = 0
+    for txt, precio, titulo, comuna, por_que in CASOS_TARJETA:
+        p, (t, c) = _precio(txt), _titulo_y_comuna(txt)
+        mal = []
+        if p != precio:
+            mal.append(f"precio={p} esperado {precio}")
+        if t != titulo:
+            mal.append(f"titulo={t!r} esperado {titulo!r}")
+        if c != comuna:
+            mal.append(f"comuna={c!r} esperado {comuna!r}")
+        if mal:
+            fallos += 1
+            print(f"✖ tarjeta · {por_que}")
+            for m in mal:
+                print(f"    {m}")
+        else:
+            print(f"✓ tarjeta · {por_que}: {t[:38]} · {comuna or 'sin comuna'}")
+    return fallos
+
+
 def main() -> int:
     total = 0
     for titulo, fn in (("candado de cuenta", probar_candado),
                        ("emparejar hilo con publicacion", probar_emparejar),
-                       ("leer ofertas de compradores", probar_ofertas)):
+                       ("leer ofertas de compradores", probar_ofertas),
+                       ("tarjetas de Marketplace", probar_tarjetas)):
         print(f"\n--- {titulo}")
         total += fn()
-    n = len(CASOS_CANDADO) + len(CASOS_HILO) + len(CASOS_OFERTA)
+    n = len(CASOS_CANDADO) + len(CASOS_HILO) + len(CASOS_OFERTA) + len(CASOS_TARJETA)
     print(f"\n{n - total}/{n} casos OK · {total} fallos")
     return total
 

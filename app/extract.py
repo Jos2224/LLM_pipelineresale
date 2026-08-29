@@ -181,6 +181,121 @@ def _specs(t: str) -> dict:
     return specs
 
 
+
+# ---------------------------------------------------------------------------
+# PIEZAS DE COMPUTACION. No solo notebooks.
+#
+# Aca la marca que importa NO es la del fabricante de la caja sino la del CHIP:
+# una RTX 3060 vale lo mismo sea Gigabyte, ASUS o MSI, con diferencias chicas.
+# Si se usara la marca de la caja, cada RTX 3060 caeria en un estante distinto
+# y ninguno juntaria las 3 muestras que el indice necesita. Por eso
+# "RTX 3060 Ti de Gigabyte" -> marca Nvidia, modelo "RTX 3060 Ti".
+#
+# Cada entrada: (patron, marca, plantilla de modelo, categoria, confianza)
+PIEZAS = [
+    # --- tarjetas de video ---
+    (r"\b(rtx|gtx)\s*(\d{3,4})\s*(ti|super)?\b", "Nvidia",
+     lambda m: f"{m.group(1).upper()} {m.group(2)}"
+               + (f" {m.group(3).title()}" if m.group(3) else ""), "componente", 0.85),
+    (r"\brx\s*(\d{3,4})\s*(xt|gre)?\b", "AMD",
+     lambda m: f"RX {m.group(1)}" + (f" {m.group(2).upper()}" if m.group(2) else ""),
+     "componente", 0.85),
+    (r"\barc\s*(a\d{3,4})\b", "Intel",
+     lambda m: f"Arc {m.group(1).upper()}", "componente", 0.8),
+
+    # --- procesadores ---
+    (r"\b(?:core\s*)?i([3579])[\s-]*(\d{4,5}[a-z]{0,2})\b", "Intel",
+     lambda m: f"Core i{m.group(1)}-{m.group(2).upper()}", "componente", 0.85),
+    (r"\bryzen\s*([3579])\s*(\d{4}[a-z]{0,2})\b", "AMD",
+     lambda m: f"Ryzen {m.group(1)} {m.group(2).upper()}", "componente", 0.85),
+    (r"\b(xeon)\s*([a-z]?\d{4}[a-z]?\d?)\b", "Intel",
+     lambda m: f"Xeon {m.group(2).upper()}", "componente", 0.8),
+
+    # --- placas madre: manda el chipset, que es lo que fija el precio ---
+    # El chipset (B450, X570) es lo que fija el precio, no el sufijo del
+    # fabricante: B450M y B450-A son el mismo chipset y valen casi igual.
+    (r"\b(?:placa|madre|motherboard|mobo)\b.*?\b([abhxz])(\d{3})[a-z]{0,3}\b", None,
+     lambda m: f"Chipset {m.group(1).upper()}{m.group(2)}", "componente", 0.75),
+    (r"\b([abhxz])(\d{3})[a-z]{0,3}\b(?=.*\b(?:placa|madre|motherboard|mobo|am4|am5|lga)\b)",
+     None, lambda m: f"Chipset {m.group(1).upper()}{m.group(2)}", "componente", 0.75),
+
+    # --- fuentes de poder: los watts SON el modelo ---
+    (r"\b(?:fuente|psu)\b.*?\b(\d{3,4})\s*w\b", None,
+     lambda m: f"Fuente {m.group(1)}W", "componente", 0.75),
+    (r"\b(\d{3,4})\s*w\b.*?\b(?:80\s*plus|fuente|psu)\b", None,
+     lambda m: f"Fuente {m.group(1)}W", "componente", 0.75),
+]
+
+# Categorias que faltaban. La palabra que aparece primero en el titulo gana.
+CATEGORIA_EXTRA = [
+    (r"\b(tarjeta\s*(de\s*)?video|placa\s*de\s*video|gpu|grafica|gr[aá]fica)\b", "componente"),
+    (r"\b(procesador|cpu|micro)\b", "componente"),
+    (r"\b(placa\s*madre|motherboard|mobo)\b", "componente"),
+    (r"\b(fuente\s*(de\s*)?poder|psu)\b", "componente"),
+    (r"\b(gabinete|case|torre)\b", "componente"),
+    (r"\b(refrigeraci[oó]n|cooler|disipador|ventilador)\b", "componente"),
+    (r"\b(teclado|mouse|mousepad|audifonos?|aud[ií]fonos?|headset|parlantes?)\b", "accesorio"),
+    (r"\b(router|switch|access\s*point|repetidor|modem)\b", "red"),
+    (r"\b(webcam|c[aá]mara\s*web|micr[oó]fono)\b", "accesorio"),
+    (r"\b(silla\s*gamer|escritorio)\b", "otro"),
+    (r"\b(pc\s*gamer|computador\s*armado|torre\s*gamer|desktop)\b", "computador"),
+    (r"\b(all\s*in\s*one|aio)\b", "computador"),
+    (r"\b(ups|respaldo\s*de\s*energ[ií]a)\b", "otro"),
+    (r"\b(proyector|data\s*show)\b", "otro"),
+    (r"\b(scanner|esc[aá]ner)\b", "impresora"),
+]
+
+# Marcas que no son "linea comercial" pero identifican el producto igual.
+MARCAS_SUELTAS = [
+    "kingston", "corsair", "gigabyte", "asus", "msi", "evga", "zotac", "sapphire",
+    "xfx", "powercolor", "asrock", "biostar", "seagate", "western digital", "wd",
+    "adata", "crucial", "hyperx", "logitech", "redragon", "razer", "steelseries",
+    "tp-link", "tplink", "d-link", "mercusys", "netgear", "ubiquiti", "mikrotik",
+    "epson", "canon", "brother", "samsung", "lg", "aoc", "benq", "viewsonic",
+    "cooler master", "thermaltake", "nzxt", "deepcool", "noctua", "antec",
+]
+
+
+# Categorias donde el modelo es un NOMBRE, no un numero: "Archer C6",
+# "Kumara", "MX Master". La marca sola no basta — un teclado Redragon de
+# $15.000 y uno de $80.000 son los dos "Redragon".
+CAT_POR_NOMBRE = {"accesorio", "red", "impresora"}
+
+
+def _por_marca_y_nombre(t: str, categoria: str):
+    """Marca conocida + la palabra siguiente como modelo. (marca, modelo, conf)"""
+    if categoria not in CAT_POR_NOMBRE:
+        return None
+    for mk in MARCAS_SUELTAS:
+        i = t.find(mk)
+        if i < 0:
+            continue
+        resto = t[i + len(mk):].strip()
+        # Hasta dos palabras: "archer c6", "mx master". Se descartan las de
+        # relleno para no quedarse con "para" o "con".
+        palabras = [w for w in re.findall(r"[a-z0-9]+", resto)[:3]
+                    if w not in ("para", "con", "de", "y", "gamer", "original", "nuevo")]
+        if not palabras:
+            return mk.title(), None, 0.4
+        modelo = " ".join(palabras[:2]) if len(palabras[0]) <= 3 else palabras[0]
+        return mk.title(), _titulo(modelo), 0.7
+    return None
+
+
+def _pieza(t: str):
+    """Reconoce piezas de computacion. Devuelve (marca, modelo, cat, conf) o None."""
+    for patron, marca_fija, plantilla, cat, conf in PIEZAS:
+        m = re.search(patron, t)
+        if not m:
+            continue
+        marca = marca_fija
+        if marca is None:
+            marca = next((mk for mk in MARCAS_SUELTAS if mk in t), None)
+            marca = marca.title() if marca else "Generico"
+        return marca, plantilla(m), cat, conf
+    return None
+
+
 def _categoria(t: str, por_linea: str | None, pos_linea: int) -> str:
     """Gana la palabra que aparece PRIMERO en el titulo.
 
@@ -192,7 +307,7 @@ def _categoria(t: str, por_linea: str | None, pos_linea: int) -> str:
     Sin esta regla, un ThinkPad con SSD quedaba clasificado como componente.
     """
     mejor_pos, mejor_cat = 10_000, None
-    for patron, cat in CATEGORIA_PALABRA:
+    for patron, cat in list(CATEGORIA_PALABRA) + CATEGORIA_EXTRA:
         m = re.search(patron, t)
         if m and m.start() < mejor_pos:
             mejor_pos, mejor_cat = m.start(), cat
@@ -274,9 +389,66 @@ def extraer(titulo: str) -> dict:
     specs = _specs(t)
     categoria = _categoria(t, cat_linea, pos_linea)
 
+    # Piezas de computacion: GPU, CPU, placa madre, fuente. Se prueba SIEMPRE,
+    # no solo cuando la confianza es baja, y gana si es mas segura que lo que
+    # habia. Con el corte en 0.6 un 'AMD 6600' generico de 0.65 le ganaba al
+    # 'RX 6600 XT' correcto de 0.85, que es peor: el XT vale bastante mas y
+    # habrian quedado en el mismo estante.
+    pz = _pieza(t)
+    # Un PC armado completo NO es su tarjeta de video: "PC Gamer con RTX 3050"
+    # quedaria en el mismo estante que una RTX 3050 suelta, que vale una
+    # fraccion. El equipo entero se identifica por lo que es.
+    if categoria == "computador":
+        if pz:
+            # Se guarda para armar el modelo del equipo, pero NO se usa como
+            # identidad: un PC entero no vale lo que su tarjeta sola.
+            gpu = pz[1]
+            pz = None
+        else:
+            gpu = None
+        cpu = None
+        mc = re.search(r"\b(?:core\s*)?i([3579])\b", t) or re.search(r"\bryzen\s*([3579])\b", t)
+        if mc:
+            cpu = ("Ryzen " if "ryzen" in t else "i") + mc.group(1)
+        if cpu or gpu:
+            marca = marca or "Armado"
+            modelo = "PC " + " + ".join(x for x in (cpu, gpu) if x)
+            confianza = max(confianza, 0.7)
+    if pz and pz[3] > confianza:
+        marca, modelo, cat_pz, confianza = pz
+        if categoria in ("otro", "componente", "accesorio"):
+            categoria = cat_pz
+
     # Un componente generico (ram, ssd) no tiene modelo: la capacidad ES el
     # modelo. Sin esto cada SSD quedaria en un estante distinto y ninguno
     # juntaria las 3 muestras que el indice de precios necesita.
+    # En un monitor lo que manda el precio es el tamaño, igual que la
+    # capacidad en una RAM. Sin esto cada monitor quedaba en su propio estante.
+    if categoria == "monitor":
+        pulg = specs.get("pulgadas")
+        if pulg is None:
+            # En un monitor un numero suelto entre 15 y 49 son pulgadas: nadie
+            # escribe "Monitor Samsung 27 pulgadas" siempre. Sin esto quedaba
+            # sin modelo y cada monitor en su propio estante.
+            mp = re.search(r"\b([1-4]\d)\b(?!\s*(gb|tb|hz|w|mhz))", t)
+            pulg = int(mp.group(1)) if mp and 15 <= int(mp.group(1)) <= 49 else None
+    if categoria == "monitor" and pulg:
+        pulg = int(pulg)
+        # Queda guardada en specs, no solo en el nombre: de ahi salen los
+        # estantes de precio, y un 24" y un 32" no valen lo mismo.
+        specs["pulgadas"] = pulg
+        extra = " 4K" if re.search(r"\b4k|uhd\b", t) else (" QHD" if "qhd" in t or "1440" in t else "")
+        modelo = f'Monitor {pulg}"{extra}'
+        confianza = max(confianza, 0.7)
+        if not marca:
+            marca = "Generico"
+
+    # Perifericos, routers e impresoras: el modelo es un nombre, no un numero.
+    if confianza < 0.6:
+        pn = _por_marca_y_nombre(t, categoria)
+        if pn and pn[1] and pn[2] > confianza:
+            marca, modelo, confianza = pn
+
     if categoria == "componente" and marca:
         es_ram = re.search(rf"\b({PAL_RAM})\b", t)
         if es_ram and "ram_gb" in specs:

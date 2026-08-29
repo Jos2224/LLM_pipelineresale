@@ -9,6 +9,22 @@ from app.extract import extraer
 
 # (titulo, marca, modelo, categoria, specs que deben estar)
 CASOS = [
+    # --- computacion que NO es notebook (agregado 28-ago) ---
+    # El identificador estaba armado casi entero alrededor de los ThinkPads:
+    # de 12 titulos de piezas, 5 salian con confianza 0. Buscar cosas que
+    # despues no se reconocen solo llena la base de items sin identificar.
+    ("RTX 3060 Ti 8GB Gigabyte Gaming OC", "Nvidia", "RTX 3060 Ti", "componente", {}),
+    ("Tarjeta de video AMD RX 6600 XT 8GB", "AMD", "RX 6600 XT", "componente", {}),
+    ("Procesador Intel Core i7 12700K", "Intel", "Core i7-12700K", "componente", {}),
+    ("Ryzen 5 5600X AM4", "AMD", "Ryzen 5 5600X", "componente", {}),
+    ("Placa madre ASUS B450M TUF Gaming", "Asus", "Chipset B450", "componente", {}),
+    ("Fuente de poder Corsair 650W 80 Plus", "Corsair", "Fuente 650W", "componente", {}),
+    ("Teclado mecanico Redragon Kumara", "Redragon", "Kumara", "accesorio", {}),
+    ("Router TP-Link Archer C6 AC1200", "Tp-Link", "Archer", "red", {}),
+    ("Monitor Samsung 27 4K", "Samsung", 'Monitor 27" 4K', "monitor", {"pulgadas": 27}),
+    # Un PC entero NO es su tarjeta de video: quedaria en el mismo estante que
+    # una RTX 3050 suelta, que vale una fraccion.
+    ("PC Gamer i5 16GB RTX 3050 SSD 1TB", "Armado", "PC i5 + RTX 3050", "computador", {"ram_gb": 16, "disco_gb": 1024}),
     ("NOTEBOOK LENOVO THINKPAD T480 i5 8VA 16GB SSD 256 !!OFERTA!!",
      "Lenovo", "ThinkPad T480", "notebook", {"ram_gb": 16, "disco_gb": 256, "cpu": "I5"}),
     ("Thinkpad T480 i5-8250U 16gb 512gb ssd impecable",

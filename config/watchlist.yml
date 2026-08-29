@@ -1,8 +1,13 @@
-# Que cazar. Cada entrada es una busqueda en MercadoLibre.
+# Que cazar. Cada entrada es una busqueda en Facebook Marketplace.
 #
-# Esta lista arranca sembrada desde tu propio inventario de ML: el script 20
-# lee lo que ya vendes y propone keywords por Telegram. Tu solo aprietas
-# [Agregar] o [No]. Lo que apruebes se escribe aca solo.
+# Cubre TODA la computacion, no solo notebooks. El identificador
+# (app/extract.py) reconoce las 18 familias de bin/test_extract.py: notebooks,
+# tarjetas de video, procesadores, placas madre, fuentes, discos, memorias,
+# monitores, perifericos, red, impresoras y PCs armados.
+#
+# Como se recorren: cada ciclo toma `ritmo.fb_keywords_por_ciclo` al azar de
+# esta lista. Con 30 keywords y 10 por ciclo cada 30 min, la lista entera se
+# cubre en hora y media. Agregar mas no cuesta velocidad, solo alarga la vuelta.
 #
 # Campos:
 #   q          texto de busqueda
@@ -11,19 +16,59 @@
 #   activa     false = queda guardada pero no se consulta
 
 keywords:
-  - {q: "thinkpad t480", condicion: all, activa: true}
-  - {q: "thinkpad t490", condicion: all, activa: true}
-  - {q: "thinkpad x1 carbon", condicion: all, activa: true}
-  - {q: "notebook lenovo i5 8gb", condicion: used, activa: true}
-  - {q: "notebook dell latitude", condicion: used, activa: true}
-  - {q: "macbook pro 2015", condicion: used, activa: true}
-  - {q: "monitor 24 ips", condicion: used, activa: true}
-  - {q: "disco ssd 500gb", condicion: all, activa: true}
-  - {q: "memoria ram ddr4 sodimm 8gb", condicion: all, activa: true}
-  - {q: "cargador thinkpad original", condicion: all, activa: true}
+  # --- notebooks: lo mas liquido, se revende siempre ---
+  - {q: "notebook lenovo thinkpad", condicion: all, activa: true}
+  - {q: "notebook dell latitude", condicion: all, activa: true}
+  - {q: "notebook hp elitebook", condicion: all, activa: true}
+  - {q: "macbook pro", condicion: all, activa: true}
+  - {q: "notebook gamer", condicion: all, activa: true}
+  - {q: "notebook i5 8gb", condicion: used, activa: true}
+  - {q: "notebook i7", condicion: used, activa: true}
+
+  # --- tarjetas de video: lo que mas margen deja ---
+  - {q: "tarjeta de video rtx", condicion: all, activa: true}
+  - {q: "tarjeta de video gtx", condicion: all, activa: true}
+  - {q: "tarjeta de video rx", condicion: all, activa: true}
+
+  # --- procesadores ---
+  - {q: "procesador intel core i5", condicion: all, activa: true}
+  - {q: "procesador intel core i7", condicion: all, activa: true}
+  - {q: "procesador ryzen", condicion: all, activa: true}
+
+  # --- armado de PC ---
+  - {q: "placa madre", condicion: all, activa: true}
+  - {q: "fuente de poder pc", condicion: all, activa: true}
+  - {q: "pc gamer", condicion: all, activa: true}
+  - {q: "computador armado", condicion: all, activa: true}
+  - {q: "all in one", condicion: used, activa: true}
+
+  # --- almacenamiento y memoria ---
+  - {q: "disco ssd", condicion: all, activa: true}
+  - {q: "disco duro externo", condicion: all, activa: true}
+  - {q: "memoria ram ddr4", condicion: all, activa: true}
+  - {q: "memoria ram ddr5", condicion: all, activa: true}
+
+  # --- monitores ---
+  - {q: "monitor gamer", condicion: all, activa: true}
+  - {q: "monitor 24 pulgadas", condicion: all, activa: true}
+  - {q: "monitor 27 pulgadas", condicion: all, activa: true}
+
+  # --- perifericos y red ---
+  - {q: "teclado mecanico", condicion: all, activa: true}
+  - {q: "mouse gamer", condicion: all, activa: true}
+  - {q: "audifonos gamer", condicion: all, activa: true}
+  - {q: "router wifi", condicion: all, activa: true}
+
+  # --- impresion y varios ---
+  - {q: "impresora laser", condicion: all, activa: true}
+  - {q: "impresora multifuncional", condicion: all, activa: true}
+  - {q: "tablet ipad", condicion: all, activa: true}
+  - {q: "cargador notebook", condicion: all, activa: true}
+  - {q: "docking station", condicion: all, activa: true}
 
 # Lote de remate: no son keywords sino lotes completos. score.py les aplica
-# el modelo B = P0 * sqrt(G) en vez del indice de ML.
+# el modelo B = P0 * sqrt(G) en vez del indice de precios.
 remates:
   - {q: "lote notebooks", activa: true}
+  - {q: "lote computadores", activa: true}
   - {q: "lote celulares", activa: true}

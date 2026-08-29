@@ -296,6 +296,9 @@ def correr() -> str:
     pausa_min = int(p("facebook.negociar_pausa_min", 15))
     hechos: list[str] = []
 
+    # Un solo Chrome por vez sobre el perfil (ver fb_guard).
+    if not fb_guard.tomar_turno("negociar_fb"):
+        return "otro job de FB tiene el navegador; se hace en la proxima"
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(
             str(perfil), headless=True, viewport={"width": 1366, "height": 900},
@@ -346,6 +349,7 @@ def correr() -> str:
                 time.sleep(random.uniform(60, 180))
         finally:
             ctx.close()
+            fb_guard.soltar_turno("negociar_fb")
 
     # 3) las que nunca contestaron
     horas = int(p("compra_negociacion.espera_respuesta_h", 48))

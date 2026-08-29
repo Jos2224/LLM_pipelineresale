@@ -47,6 +47,25 @@ ESCALA_DISCO = [128, 256, 512, 1024, 2048, 4096]
 
 TODO = "*"      # el estante del modelo entero
 
+# Modelos demasiado genericos para valorar. Son nombres de LINEA, no de equipo:
+# un "ThinkPad" puede ser un T420 de 2011 o un T14 de 2023, y su mediana no
+# describe a ninguno de los dos. Antes formaban un estante con muchas muestras
+# — y por eso parecia confiable — que mezclaba equipos de 80.000 con otros de
+# 600.000. Si el modelo cae aca, se pide el precio en vez de inventarlo.
+GENERICOS = {
+    "thinkpad", "ideapad", "macbook", "macbook pro", "macbook air", "latitude",
+    "elitebook", "probook", "inspiron", "vivobook", "zenbook", "aspire",
+    "pavilion", "notebook", "yoga", "thinkbook", "xps", "legion", "victus",
+    "omen", "rog", "tuf", "precision", "vostro", "optiplex", "zbook",
+    "iphone", "ipad", "galaxy", "redmi", "poco", "imac",
+}
+
+
+def demasiado_generico(modelo: str | None) -> bool:
+    """True si el modelo es un nombre de linea sin identificar el equipo."""
+    m = " ".join((modelo or "").lower().split())
+    return not m or m in GENERICOS
+
 
 def _escalon(valor, escala: list[int]) -> int | None:
     try:
@@ -161,6 +180,12 @@ def precio_mercado(pid, specs: dict | None, mercado: str | None = None) -> tuple
     """
     if not pid:
         return None, "sin producto"
+
+    # Un estante de linea ("ThinkPad" a secas) junta muchas muestras y por eso
+    # parece confiable, pero su mediana no describe a ningun equipo real.
+    fila_pc = q1("SELECT modelo FROM producto_canon WHERE id = %s", (pid,))
+    if fila_pc and demasiado_generico(fila_pc["modelo"]):
+        return None, f"modelo «{fila_pc['modelo']}» es demasiado generico para valorar"
 
     # Orden de preferencia entre mercados, y el POR QUE:
     # tu COMPRAS en Facebook y VENDES en MercadoLibre, asi que "en cuanto lo

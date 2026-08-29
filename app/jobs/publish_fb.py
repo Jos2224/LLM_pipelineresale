@@ -53,6 +53,9 @@ def correr() -> str:
 
     ok = 0
     lo, hi = p("ritmo.fb_pausa_min", [3, 5])
+    # Un solo Chrome por vez sobre el perfil (ver fb_guard).
+    if not fb_guard.tomar_turno("publish_fb"):
+        return "otro job de FB tiene el navegador; se hace en la proxima"
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(
             str(perfil), headless=False, viewport={"width": 1366, "height": 900},
@@ -94,6 +97,7 @@ def correr() -> str:
                     time.sleep(random.uniform(lo * 60, hi * 60))
         finally:
             ctx.close()
+            fb_guard.soltar_turno("publish_fb")
     return f"{ok}/{len(pend)} publicados en FB"
 
 

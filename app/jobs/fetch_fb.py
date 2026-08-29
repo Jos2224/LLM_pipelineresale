@@ -114,6 +114,9 @@ def correr() -> str:
     lo, hi = p("ritmo.fb_pausa_min", [3, 5])
 
     nuevos = 0
+    # Un solo Chrome por vez sobre el perfil (ver fb_guard).
+    if not fb_guard.tomar_turno("fetch_fb"):
+        return "otro job de FB tiene el navegador; se hace en la proxima"
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(
             str(perfil), headless=True, viewport={"width": 1366, "height": 850},
@@ -122,6 +125,9 @@ def correr() -> str:
         permitido, motivo = fb_guard.verificar_o_avisar(ctx, "fetch_fb")
         if not permitido:
             ctx.close()
+            # Sin esto el turno quedaba tomado y los otros jobs de FB se
+            # quedaban esperando 20 min hasta que caducara.
+            fb_guard.soltar_turno("fetch_fb")
             return f"candado de cuenta: {motivo}"
 
         pag = ctx.new_page()
@@ -164,6 +170,7 @@ def correr() -> str:
             if i < len(kws) - 1:
                 time.sleep(random.uniform(lo * 60, hi * 60))
         ctx.close()
+    fb_guard.soltar_turno("fetch_fb")
     return f"{len(kws)} busquedas FB, {nuevos} nuevos"
 
 

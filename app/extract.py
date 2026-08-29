@@ -389,6 +389,21 @@ def extraer(titulo: str) -> dict:
     specs = _specs(t)
     categoria = _categoria(t, cat_linea, pos_linea)
 
+    # Apple pone un numero de modelo (A1278, A1502) que identifica el equipo
+    # EXACTO: año, tamaño y generacion. Es el mejor identificador que hay y
+    # estaba sin usar. Sin el, un MacBook Pro 2010 y un Retina 2013 caian en el
+    # mismo estante "MacBook Pro" y compartian precio — uno vale el doble.
+    ma = re.search(r"\b(a1\d{3})\b", t)
+    if ma and marca and marca.lower() == "apple":
+        modelo = f"{modelo or 'MacBook'} {ma.group(1).upper()}".strip()
+        confianza = max(confianza, 0.85)
+    elif marca and marca.lower() == "apple":
+        # Sin numero A, el AÑO separa generaciones que valen muy distinto.
+        anio = re.search(r"\b(20[01]\d|202[0-9])\b", t)
+        if anio and modelo:
+            modelo = f"{modelo} {anio.group(1)}"
+            confianza = max(confianza, 0.8)
+
     # Piezas de computacion: GPU, CPU, placa madre, fuente. Se prueba SIEMPRE,
     # no solo cuando la confianza es baja, y gana si es mas segura que lo que
     # habia. Con el corte en 0.6 un 'AMD 6600' generico de 0.65 le ganaba al

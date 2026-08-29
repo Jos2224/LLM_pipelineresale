@@ -23,6 +23,13 @@ compra:
   # malo, casi siempre un precio mal leido de la tarjeta. Sin este freno el
   # bot te manda a comprar basura con toda confianza.
   # Lo que pase de aca NO se descarta en silencio: queda anotado para revisar.
+  # Piso de valor. Un cargador que se revende en 15.000 puede dar 2x y aun asi
+  # no vale la pena: es un viaje de tu asistente, una coordinacion y un dia de
+  # inventario por 15 lucas. Se mide sobre el VALOR DE REVENTA (V_liq), no
+  # sobre lo que piden: lo que importa es cuanto saca la vuelta completa.
+  # Los items baratos igual entran al indice de precios — son datos de mercado
+  # validos — pero no te llega alerta por ellos.
+  valor_minimo: 50000
   multiplo_maximo_creible: 12
   costos_fijos: 12000 # T: flete + limpieza + repuesto tipico. Solo se MUESTRA
                       # en la alerta para que veas el margen real; no cambia

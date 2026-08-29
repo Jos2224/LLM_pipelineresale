@@ -49,8 +49,9 @@ def correr() -> str:
            ORDER BY i.visto_en DESC LIMIT %s""",
         (LOTE,),
     )
-    marcadas = increibles = 0
+    marcadas = increibles = baratos = 0
     tope_creible = float(p("compra.multiplo_maximo_creible", 12))
+    valor_minimo = float(p("compra.valor_minimo", 50000))
     for it in candidatos:
         crudo = it["crudo"] or {}
         pid = crudo.get("producto")
@@ -76,6 +77,11 @@ def correr() -> str:
                (json.dumps({"p50_origen": origen, "p50_usado": round(p50)}), it["id"]))
 
         if not ev["oportunidad"]:
+            continue
+
+        # Piso de valor: bajo esto no vale el viaje, por buen multiplo que dé.
+        if ev["v_liq"] < valor_minimo:
+            baratos += 1
             continue
 
         # Freno de cordura: un multiplo imposible es un precio mal leido, no
@@ -107,7 +113,8 @@ def correr() -> str:
            WHERE o.item_raw = i.id AND o.estado IN ('nueva','avisada','watchlist')
              AND i.precio > o.p_max""",
     )
-    extra = f", {increibles} descartadas por multiplo increible" if increibles else ""
+    extra = f", {increibles} por multiplo increible" if increibles else ""
+    extra += f", {baratos} bajo el piso de valor" if baratos else ""
     return (f"{len(candidatos)} evaluados, {marcadas} oportunidades, "
             f"{muertas} pasadas de precio{extra}")
 

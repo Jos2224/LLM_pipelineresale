@@ -35,8 +35,11 @@ CASOS = [
      "Dell", "Latitude 7490", "notebook", {"ram_gb": 8, "disco_gb": 256}),
     ("HP EliteBook 840 G5 i5 8GB 256GB SSD reacondicionado",
      "Hp", "EliteBook 840 G5", "notebook", {"ram_gb": 8, "disco_gb": 256}),
+    # El AÑO va en el modelo. Un MacBook Pro 2015 y uno 2019 no valen parecido,
+    # y sin el año caian en el mismo estante: 30 muestras que mezclaban equipos
+    # de 200.000 con otros de 900.000. Cambiado el 28-ago.
     ("MacBook Pro 13 2015 i5 8gb 256 ssd",
-     "Apple", "MacBook Pro", "notebook", {"ram_gb": 8, "disco_gb": 256}),
+     "Apple", "MacBook Pro 2015", "notebook", {"ram_gb": 8, "disco_gb": 256}),
     ("iPhone 13 Pro Max 256gb liberado impecable",
      "Apple", "iPhone 13 Pro Max", "celular", {"disco_gb": 256}),
     ("Samsung Galaxy S21 Ultra 12gb 256gb",

@@ -236,6 +236,9 @@ def correr() -> str:
            WHERE p.marketplace='fb' AND p.estado IN ('activa','pausada')""")]
 
     leidos = nuevos = auto = esc = compras = sin_saber = 0
+    # Un solo Chrome por vez sobre el perfil (ver fb_guard).
+    if not fb_guard.tomar_turno("reply_fb"):
+        return "otro job de FB tiene el navegador; se hace en la proxima"
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(
             str(perfil), headless=True, viewport={"width": 1366, "height": 900},
@@ -406,6 +409,7 @@ def correr() -> str:
                     esc += 1
         finally:
             ctx.close()
+            fb_guard.soltar_turno("reply_fb")
 
     return (f"{leidos} hilos leidos, {nuevos} nuevos, {auto} contestados solos, "
             f"{esc} escalados, {compras} pasados a negociacion de compra, "

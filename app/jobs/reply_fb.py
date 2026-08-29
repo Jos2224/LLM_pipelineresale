@@ -235,7 +235,7 @@ def correr() -> str:
            LEFT JOIN producto_canon pc ON pc.id = inv.producto
            WHERE p.marketplace='fb' AND p.estado IN ('activa','pausada')""")]
 
-    leidos = nuevos = auto = esc = 0
+    leidos = nuevos = auto = esc = compras = sin_saber = 0
     with sync_playwright() as pw:
         ctx = pw.chromium.launch_persistent_context(
             str(perfil), headless=True, viewport={"width": 1366, "height": 900},
@@ -248,8 +248,11 @@ def correr() -> str:
             pag = ctx.new_page()
             enviados_cola = _drenar_cola(pag)
 
-            if not activas:
-                return f"{enviados_cola} de la cola; sin publicaciones activas en FB"
+            # OJO: no se corta aunque no tengas publicaciones activas. El inbox
+            # tambien trae los hilos donde TU eres el comprador, y esos hay que
+            # atenderlos igual. Cortar aca dejaba una negociacion de compra sin
+            # respuesta por no tener nada publicado — que es justo el estado en
+            # el que se empieza.
 
             pag.goto(fb("inbox.url"), wait_until="domcontentloaded", timeout=45000)
             pag.wait_for_timeout(random.randint(3000, 6000))
@@ -262,8 +265,26 @@ def correr() -> str:
                     vistos.add(m.group(1))
                     hilos.append(m.group(1))
             if not hilos:
-                return (f"{enviados_cola} de la cola; no encontre hilos. "
-                        "Revisa inbox.hilo_link en config/facebook.yml")
+                # "Sin conversaciones" y "el selector se rompio" se ven igual
+                # desde aca, y son cosas MUY distintas: una es normal y la otra
+                # hay que arreglarla ya. Se distinguen mirando si la pagina del
+                # inbox de verdad cargo.
+                cuerpo = ""
+                try:
+                    cuerpo = pag.inner_text("body") or ""
+                except Exception:
+                    pass
+                cargo = "Bandeja de entrada" in cuerpo or "Inbox" in cuerpo
+                if cargo:
+                    return (f"{enviados_cola} de la cola; el inbox cargo bien y no "
+                            "hay ninguna conversacion todavia")
+                tg.PUBLICADOR.enviar(
+                    "⚠️ No pude leer el inbox de Marketplace. O Facebook pidio "
+                    "verificacion, o cambio el diseño.\n"
+                    "El selector se arregla en <code>config/facebook.yml</code> "
+                    "→ <code>inbox.hilo_link</code>")
+                return (f"{enviados_cola} de la cola; el inbox NO cargo — revisa "
+                        "inbox.hilo_link en config/facebook.yml")
 
             responder_auto = bool(p("facebook.responder_auto", False))
             lo, hi = p("facebook.pausa_resp_seg", [45, 150])
@@ -292,10 +313,36 @@ def correr() -> str:
 
                 pub = _publicacion_de(titulos[0] if titulos else "", activas)
                 if not pub:
+                    # No es un hilo de algo que TU vendes. Puede ser uno donde
+                    # TU compras: ahi lo atiende negociar_fb, que lleva la
+                    # escalera de ofertas y el techo. Nunca se contesta con la
+                    # ficha de una publicacion que no es la de este hilo.
+                    neg = q1(
+                        """SELECT ng.id, ng.estado, ng.ronda, i.titulo, o.multiplo
+                           FROM negociacion ng
+                           JOIN oportunidad o ON o.id = ng.oportunidad
+                           JOIN item_raw i ON i.id = o.item_raw
+                           WHERE ng.canal='fb' AND ng.hilo=%s""", (hilo,))
+                    if neg:
+                        # Marcarlo como movido hace que negociar_fb lo tome en
+                        # su proxima pasada, con sus propias reglas de plata.
+                        ex("""UPDATE negociacion SET ultimo_mov = now() - make_interval(hours => 1)
+                              WHERE id=%s""", (neg["id"],))
+                        compras += 1
+                        continue
+
+                    # Ni tuyo ni una negociacion abierta: NO se adivina, se te
+                    # manda entero. Antes esto se contaba como "no supe" y se
+                    # perdia; ahora lleva el link para que contestes en un clic.
+                    if R.get(f"cazador:fb_hilo_visto:{hilo}"):
+                        continue    # ya dijiste que lo ves tu
                     tg.PUBLICADOR.enviar(
-                        "❓ mensaje en FB y no supe de que publicacion es\n"
-                        f"producto en el hilo: «{(titulos[0] if titulos else '?')[:70]}»\n\n{ultimo[:400]}\n\n"
-                        f"https://www.facebook.com/marketplace/t/{hilo}/")
+                        "💬 <b>mensaje en Messenger sin identificar</b>\n"
+                        f"producto en el hilo: «{(titulos[0] if titulos else '?')[:70]}»\n\n"
+                        f"{ultimo[:400]}\n\n"
+                        f"https://www.facebook.com/marketplace/t/{hilo}/",
+                        tg.teclado([[("✏️ Lo veo yo", f"fb_visto:{hilo}")]]))
+                    sin_saber += 1
                     continue
 
                 lectura = leer_respuesta_vendedor(ultimo, float(pub["precio"] or 0))
@@ -360,8 +407,9 @@ def correr() -> str:
         finally:
             ctx.close()
 
-    return (f"{leidos} hilos leidos, {nuevos} mensajes nuevos, "
-            f"{auto} contestados solos, {esc} escalados, {enviados_cola} de la cola")
+    return (f"{leidos} hilos leidos, {nuevos} nuevos, {auto} contestados solos, "
+            f"{esc} escalados, {compras} pasados a negociacion de compra, "
+            f"{sin_saber} sin identificar, {enviados_cola} de la cola")
 
 
 if __name__ == "__main__":

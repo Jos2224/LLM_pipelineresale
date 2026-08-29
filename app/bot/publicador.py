@@ -378,6 +378,11 @@ def boton(cb: dict) -> None:
         # manda a ML en su proxima pasada (cada 10 min).
         R.rpush("cazador:enviar_msg", arg)
         aviso = "se envia"
+    elif accion == "fb_visto":
+        # Un hilo de Messenger que no supimos identificar y tu decidiste
+        # atender a mano. Se anota para no volver a molestarte con el mismo.
+        R.setex(f"cazador:fb_hilo_visto:{arg}", 30 * 24 * 3600, "1")
+        aviso = "anotado, no te lo repito"
     elif accion == "fb_enviar":
         # Facebook no tiene API: lo manda reply_fb desde el navegador.
         R.rpush("cazador:fb_enviar", arg)

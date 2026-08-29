@@ -110,7 +110,7 @@ def correr() -> str:
     fid = q1("SELECT id FROM fuente WHERE nombre = %s", (FUENTE,))["id"]
     kws = [k["q"] for k in (watchlist().get("keywords") or []) if k.get("activa", True)]
     random.shuffle(kws)
-    kws = kws[:6]
+    kws = kws[:int(p("ritmo.fb_keywords_por_ciclo", 10))]
     lo, hi = p("ritmo.fb_pausa_min", [3, 5])
 
     nuevos = 0

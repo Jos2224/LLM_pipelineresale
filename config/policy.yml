@@ -113,7 +113,11 @@ ritmo:
   ml_busquedas_por_ciclo: 25
   ml_pausa_seg: 1.2
   fb_publicaciones_dia: 5
-  fb_pausa_min: [3, 5]
+  # Facebook es ahora la UNICA fuente de caza (ML cerro su busqueda), asi que
+  # se le sube el volumen: mas keywords por vuelta y pausas mas cortas, sin
+  # salirse del ritmo humano que evita el bloqueo.
+  fb_pausa_min: [2, 4]
+  fb_keywords_por_ciclo: 10
 
 facebook:
   # ---------------------------------------------------------------

@@ -70,7 +70,8 @@ def main() -> None:
 
     cada(15 * 60, "reply_fb", reply_fb)          # lo que mas urge: un comprador
     cada(20 * 60, "negociar_fb", negociar_fb)    # regatear la compra
-    cada(3600, "fetch_fb", fetch_fb)             # buscar gangas
+    cada(30 * 60, "fetch_fb", fetch_fb)          # buscar gangas: cada 30 min,
+                                                # es la unica fuente que queda
     cada(4 * 3600, "publish_fb", publish_fb)     # subir lo aprobado
 
     for sig in (signal.SIGTERM, signal.SIGINT):

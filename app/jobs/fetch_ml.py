@@ -62,7 +62,22 @@ def _guardar(fid: int, r: dict) -> bool:
     return bool(fila and fila["nuevo"])
 
 
+# MercadoLibre cerro /sites/MLC/search para terceros: 403 PolicyAgent, con
+# token y sin token (verificado el 28-ago de las dos formas). No es un permiso
+# que falte, es que ya no se puede. Correr esto son 12 llamadas cada 30 min
+# para recibir 12 veces "nada", y ensuciar job_log tapando los errores reales.
+#
+# La caza pasa a ser SOLO Facebook Marketplace (app/worker/fb.py).
+# De ML siguen vivos y en uso: publicar, contestar preguntas, avisar ventas, y
+# el indice de precios desde tus ventas cerradas (app/jobs/ventas_ml.py).
+BUSQUEDA_CERRADA = True
+
+
 def correr() -> str:
+    if BUSQUEDA_CERRADA:
+        return "ML cerro su busqueda publica (403 PolicyAgent) — la caza es en Facebook"
+
+
     fid = _fuente_id()
     wl = watchlist()
     entradas = [k for k in (wl.get("keywords") or []) if k.get("activa", True)]

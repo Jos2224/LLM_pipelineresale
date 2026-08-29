@@ -19,6 +19,11 @@ compra:
   # Comprando entre objetivo y techo, el promedio cae en ~2,2x, que es la meta.
   multiplo_techo: 2.0
   multiplo_objetivo: 2.5
+  # Freno de cordura. Un 2x o un 4x existen; un 1486x no — eso es un dato
+  # malo, casi siempre un precio mal leido de la tarjeta. Sin este freno el
+  # bot te manda a comprar basura con toda confianza.
+  # Lo que pase de aca NO se descarta en silencio: queda anotado para revisar.
+  multiplo_maximo_creible: 12
   costos_fijos: 12000 # T: flete + limpieza + repuesto tipico. Solo se MUESTRA
                       # en la alerta para que veas el margen real; no cambia
                       # tus multiplos.

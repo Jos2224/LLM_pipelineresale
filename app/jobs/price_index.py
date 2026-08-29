@@ -42,21 +42,23 @@ def _pesados(filas: list[dict]) -> list[float]:
     return precios
 
 
-def _guardar(pid: int, tramo: str, filas: list[dict], medidos: dict | None) -> bool:
+def _guardar(pid: int, tramo: str, filas: list[dict], medidos: dict | None,
+             mercado: str = "ml") -> bool:
     res = percentiles(_pesados(filas))
     if not res:
         return False
     p25, p50, p80, _ = res
     m = medidos or {}
     ex(
-        """INSERT INTO indice_precio (producto, tramo, p25, p50, p80, n_muestras,
-                                      coef_spec, spec_ref, calculado)
-           VALUES (%s,%s,%s,%s,%s,%s,%s,%s, now())
-           ON CONFLICT (producto, tramo) DO UPDATE SET
+        """INSERT INTO indice_precio (producto, tramo, mercado, p25, p50, p80,
+                                      n_muestras, coef_spec, spec_ref, calculado)
+           VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s, now())
+           ON CONFLICT (producto, tramo, mercado) DO UPDATE SET
              p25=EXCLUDED.p25, p50=EXCLUDED.p50, p80=EXCLUDED.p80,
              n_muestras=EXCLUDED.n_muestras, coef_spec=EXCLUDED.coef_spec,
              spec_ref=EXCLUDED.spec_ref, calculado=now()""",
-        (pid, tramo, p25, p50, p80, len(filas), m.get("coef_spec"), m.get("spec_ref")),
+        (pid, tramo, mercado, p25, p50, p80, len(filas),
+         m.get("coef_spec"), m.get("spec_ref")),
     )
     return True
 
@@ -67,48 +69,55 @@ def correr() -> str:
     hechos = flacos = estantes = 0
 
     for pr in productos:
-        # make_interval en vez de meter el parametro dentro de las comillas de
-        # interval '...': ahi el valor viaja como texto y basta que deje de ser
-        # un entero para romper la consulta.
-        filas = [dict(x) for x in q(
-            """SELECT precio, vendidos, ram_gb, disco_gb, tramo FROM precio_obs
-               WHERE producto = %s AND fecha > now() - make_interval(days => %s)
-                 AND estado IN ('usado','reacondicionado','desconocido')""",
-            (pr["id"], DIAS))]
-        if len(filas) < MIN_MUESTRAS:
-            # Sin usados suficientes: se cae a todo estado, marcando que es flojo.
+        # Un indice por MERCADO. ML y Facebook son dos mercados distintos: en
+        # FB la gente pide menos. Mezclarlos daria una mediana que no existe
+        # en ninguno de los dos.
+        for mercado in ("ml", "fb"):
+            # make_interval en vez de meter el parametro dentro de las comillas
+            # de interval '...': ahi el valor viaja como texto y basta que deje
+            # de ser un entero para romper la consulta.
             filas = [dict(x) for x in q(
                 """SELECT precio, vendidos, ram_gb, disco_gb, tramo FROM precio_obs
-                   WHERE producto = %s AND fecha > now() - make_interval(days => %s)""",
-                (pr["id"], DIAS))]
-        if len(filas) < MIN_MUESTRAS:
-            flacos += 1
-            continue
+                   WHERE producto = %s AND mercado = %s
+                     AND fecha > now() - make_interval(days => %s)
+                     AND estado IN ('usado','reacondicionado','desconocido')""",
+                (pr["id"], mercado, DIAS))]
+            if len(filas) < MIN_MUESTRAS:
+                # Sin usados suficientes: se cae a todo estado, y queda flojo.
+                filas = [dict(x) for x in q(
+                    """SELECT precio, vendidos, ram_gb, disco_gb, tramo FROM precio_obs
+                       WHERE producto = %s AND mercado = %s
+                         AND fecha > now() - make_interval(days => %s)""",
+                    (pr["id"], mercado, DIAS))]
+            if len(filas) < MIN_MUESTRAS:
+                flacos += 1
+                continue
 
-        # --- nivel 2: el modelo entero, con sus coeficientes medidos ---
-        if not _guardar(pr["id"], sp.TODO, filas, sp.medir(filas)):
-            flacos += 1
-            continue
-        hechos += 1
+            # --- nivel 2: el modelo entero, con sus coeficientes medidos ---
+            if not _guardar(pr["id"], sp.TODO, filas, sp.medir(filas), mercado):
+                flacos += 1
+                continue
+            hechos += 1
 
-        # --- nivel 1: un estante por tramo de specs, si junta muestras ---
-        por_tramo: dict[str, list[dict]] = {}
-        for f in filas:
-            t = f["tramo"] or sp.TODO
-            if t != sp.TODO:
-                por_tramo.setdefault(t, []).append(f)
-        for t, sub in por_tramo.items():
-            if len(sub) >= min_tramo and _guardar(pr["id"], t, sub, None):
-                estantes += 1
+            # --- nivel 1: un estante por tramo de specs, si junta muestras ---
+            por_tramo: dict[str, list[dict]] = {}
+            for f in filas:
+                t = f["tramo"] or sp.TODO
+                if t != sp.TODO:
+                    por_tramo.setdefault(t, []).append(f)
+            for t, sub in por_tramo.items():
+                if len(sub) >= min_tramo and _guardar(pr["id"], t, sub, None, mercado):
+                    estantes += 1
 
-        # Higiene: un estante que dejo de tener muestras suficientes se borra,
-        # si no score.py seguiria usando una mediana vieja de hace meses.
-        vivos = [t for t, sub in por_tramo.items() if len(sub) >= min_tramo]
-        ex("""DELETE FROM indice_precio
-              WHERE producto = %s AND tramo <> %s AND NOT (tramo = ANY(%s))""",
-           (pr["id"], sp.TODO, vivos))
+            # Higiene: un estante que dejo de juntar muestras se borra, si no
+            # score.py seguiria usando una mediana vieja de hace meses.
+            vivos = [t for t, sub in por_tramo.items() if len(sub) >= min_tramo]
+            ex("""DELETE FROM indice_precio
+                  WHERE producto = %s AND mercado = %s AND tramo <> %s
+                    AND NOT (tramo = ANY(%s))""",
+               (pr["id"], mercado, sp.TODO, vivos))
 
-    return (f"{hechos} modelos al dia, {estantes} estantes por specs, "
+    return (f"{hechos} indices (ML+FB), {estantes} estantes por specs, "
             f"{flacos} sin datos suficientes")
 
 

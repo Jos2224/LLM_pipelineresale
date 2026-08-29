@@ -50,24 +50,41 @@ def _lineas(txt: str) -> list[str]:
 
 
 def _precio(txt: str) -> int | None:
-    """La PRIMERA linea es el precio vigente.
+    """El primer precio VIGENTE de la tarjeta.
 
-    Cuando el vendedor baja el precio, FB pone abajo el anterior tachado: la
-    tarjeta queda [150.000, 170.000, titulo, comuna]. El vigente es el primero,
-    asi que esto esta bien — lo que estaba mal era el titulo, que se llevaba
-    el precio viejo pegado adelante y de ahi "170.000" entraba a extract.py
-    como si fuera una spec.
+    No se puede asumir que es la primera linea. FB antepone insignias:
+    "Recien publicado", "Se envia a todo Chile", "Oferta". Con la version
+    anterior esas se convertian a numero y salia cualquier cosa — una tiro
+    `numeric field overflow` y mato el ciclo entero (28-ago). De 111 items
+    solo 26 quedaron con precio.
+
+    Cuando el vendedor baja el precio, FB muestra los dos: el vigente primero
+    y el anterior tachado abajo. Por eso vale el PRIMERO que parezca plata.
     """
-    ls = _lineas(txt)
-    if not ls:
-        return None
-    d = re.sub(r"[^0-9]", "", ls[0])
-    return int(d) if d else None
+    for l in _lineas(txt):
+        if not SOLO_PLATA.match(l):
+            continue
+        d = re.sub(r"[^0-9]", "", l)
+        if not d:
+            continue
+        n = int(d)
+        # Rango sano. Fuera de esto no es un precio: es un año, un modelo, o
+        # una insignia que se colo. Nunca se guarda un numero absurdo.
+        if 100 <= n <= 99_000_000:
+            return n
+    return None
+
+
+# Insignias que FB pone alrededor del producto. No son el titulo.
+INSIGNIA = re.compile(
+    r"^(reci[eé]n publicado|se env[ií]a a todo chile|oferta|"
+    r"env[ií]o disponible|patrocinado|gratis)\b", re.I)
 
 
 def _titulo_y_comuna(txt: str) -> tuple[str, str | None]:
-    """Titulo limpio y comuna. Descarta TODAS las lineas que son solo plata."""
-    utiles = [l for l in _lineas(txt) if not SOLO_PLATA.match(l)]
+    """Titulo limpio y comuna. Fuera precios sueltos e insignias de FB."""
+    utiles = [l for l in _lineas(txt)
+              if not SOLO_PLATA.match(l) and not INSIGNIA.match(l)]
     if not utiles:
         return "", None
     comuna = None

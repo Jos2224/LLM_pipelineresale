@@ -170,6 +170,14 @@ CASOS_TARJETA = [
      70000, "ThinkPad T420 16GB, 512GB SSD", None, "specs con coma NO son comuna"),
     ("$22.000\nCargador Dell 65W tipo C original\nQuinta Normal, RM",
      22000, "Cargador Dell 65W tipo C original", "Quinta Normal", "watts no se cortan"),
+    # El que tiro numeric field overflow y dejo 85 de 111 items sin precio:
+    # FB antepone insignias y la version vieja las convertia a numero.
+    ("Recién publicado\n$45.000\nMonitor Master G Full HD 24\"\nSantiago, RM",
+     45000, 'Monitor Master G Full HD 24"', "Santiago", "insignia antes del precio"),
+    ("Se envía a todo Chile\n$120.000\nNotebook HP\nMaipú, RM",
+     120000, "Notebook HP", "Maipú", "otra insignia"),
+    ("Recién publicado\nMonitor sin precio\nLa Pintana, RM",
+     None, "Monitor sin precio", "La Pintana", "sin precio no inventa"),
 ]
 
 

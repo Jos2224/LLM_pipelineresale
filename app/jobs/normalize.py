@@ -167,18 +167,22 @@ def correr() -> str:
         else:
             por_regla += 1
 
-        # Solo los items de ML alimentan el indice de precios: son el mercado.
-        # Un remate o un aviso de FB es una compra, no una referencia de venta.
-        if it["tipo"] == "ml" and it["precio"]:
+        # ML y Facebook alimentan el indice, cada uno en SU mercado. Antes solo
+        # entraba ML y por eso el sistema no podia valuar nada hasta tener el
+        # login: sabia que habia en FB, no cuanto valia. Los remates no entran
+        # (un lote de remate no es una referencia de precio unitario).
+        if it["tipo"] in ("ml", "fb") and it["precio"]:
             cond = _condicion_cruda(it["crudo"]) or d["condicion"]
             # Las specs viajan con el precio: sin ellas el indice mezcla un
             # 8GB/256 con un 32GB/1TB y la mediana no significa nada.
             ex(
                 """INSERT INTO precio_obs (producto, precio, estado, vendidos, origen,
-                                           ram_gb, disco_gb, tramo)
-                   VALUES (%s,%s,%s,%s,'ml_activo',%s,%s,%s)""",
+                                           ram_gb, disco_gb, tramo, mercado)
+                   VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)""",
                 (pid, it["precio"], cond, (it["crudo"] or {}).get("sold_quantity") or 0,
-                 d["specs"].get("ram_gb"), d["specs"].get("disco_gb"), tramo(d["specs"])),
+                 f'{it["tipo"]}_activo',
+                 d["specs"].get("ram_gb"), d["specs"].get("disco_gb"), tramo(d["specs"]),
+                 it["tipo"]),
             )
         # Las specs quedan en el item para que score.py sepa a que estante
         # mirar sin tener que volver a leer el titulo.

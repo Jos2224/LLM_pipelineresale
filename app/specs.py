@@ -147,7 +147,7 @@ def factor(specs: dict | None, ref, medido=None) -> float:
                min(float(p("specs.factor_maximo", 2.2)), f))
 
 
-def precio_mercado(pid, specs: dict | None) -> tuple[float | None, str]:
+def precio_mercado(pid, specs: dict | None, mercado: str | None = None) -> tuple[float | None, str]:
     """El P50 que le corresponde a ESTE equipo, y de donde salio.
 
     UNICO lugar donde se consulta indice_precio para valorar algo concreto. Va
@@ -162,23 +162,37 @@ def precio_mercado(pid, specs: dict | None) -> tuple[float | None, str]:
     if not pid:
         return None, "sin producto"
 
-    # 1) estante exacto de ese equipo
+    # Orden de preferencia entre mercados, y el POR QUE:
+    # tu COMPRAS en Facebook y VENDES en MercadoLibre, asi que "en cuanto lo
+    # revendo" se responde con el precio de ML. El de FB es el respaldo para
+    # cuando ML todavia no tiene datos de ese producto — y por ser mas bajo es
+    # conservador: te hace perder oportunidades, nunca inventarlas.
+    mercados = [mercado] if mercado else ["ml", "fb"]
+    minimo = int(p("specs.min_muestras_tramo", 3))
     t = tramo(specs)
-    if t != TODO:
-        fila = q1("""SELECT p50, n_muestras FROM indice_precio
-                     WHERE producto = %s AND tramo = %s""", (pid, t))
-        if fila and fila["p50"] and (fila["n_muestras"] or 0) >= int(p("specs.min_muestras_tramo", 3)):
-            return float(fila["p50"]), f"estante {t} ({fila['n_muestras']} datos)"
 
-    # 2) modelo entero, corregido por specs
-    base = q1("""SELECT p50, n_muestras, coef_spec, spec_ref FROM indice_precio
-                 WHERE producto = %s AND tramo = %s""", (pid, TODO))
-    if not base or not base["p50"]:
-        return None, "sin indice"
-    if puntaje(specs) is None:
-        return float(base["p50"]), f"modelo, specs desconocidas ({base['n_muestras']} datos)"
-    f = factor(specs, base["spec_ref"], base["coef_spec"])
-    return float(base["p50"]) * f, f"modelo ajustado x{f:.2f} ({base['n_muestras']} datos)"
+    for m in mercados:
+        etiqueta = "" if m == "ml" else " · precio de FB"
+
+        # 1) estante exacto de ese equipo, en ese mercado
+        if t != TODO:
+            fila = q1("""SELECT p50, n_muestras FROM indice_precio
+                         WHERE producto = %s AND tramo = %s AND mercado = %s""",
+                      (pid, t, m))
+            if fila and fila["p50"] and (fila["n_muestras"] or 0) >= minimo:
+                return float(fila["p50"]), f"estante {t} ({fila['n_muestras']} datos){etiqueta}"
+
+        # 2) modelo entero, corregido por specs
+        base = q1("""SELECT p50, n_muestras, coef_spec, spec_ref FROM indice_precio
+                     WHERE producto = %s AND tramo = %s AND mercado = %s""", (pid, TODO, m))
+        if not base or not base["p50"]:
+            continue
+        if puntaje(specs) is None:
+            return float(base["p50"]), f"modelo, specs desconocidas ({base['n_muestras']} datos){etiqueta}"
+        fa = factor(specs, base["spec_ref"], base["coef_spec"])
+        return float(base["p50"]) * fa, f"modelo ajustado x{fa:.2f} ({base['n_muestras']} datos){etiqueta}"
+
+    return None, "sin indice en ML ni en FB"
 
 
 def medir(observaciones: list[dict]) -> dict:

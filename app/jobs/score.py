@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 
 from app import specs as sp
+from app.config import p
 from app.db import ex, q, q1
 from app.jobs import envuelto
 from app.pricing import banda_remate, evaluar
@@ -48,7 +49,8 @@ def correr() -> str:
            ORDER BY i.visto_en DESC LIMIT %s""",
         (LOTE,),
     )
-    marcadas = 0
+    marcadas = increibles = 0
+    tope_creible = float(p("compra.multiplo_maximo_creible", 12))
     for it in candidatos:
         crudo = it["crudo"] or {}
         pid = crudo.get("producto")
@@ -76,6 +78,16 @@ def correr() -> str:
         if not ev["oportunidad"]:
             continue
 
+        # Freno de cordura: un multiplo imposible es un precio mal leido, no
+        # una ganga. Medido el 28-ago: una tarjeta de FB dejo un precio de
+        # $240 en un ThinkPad E14 y salio 1486x. Se descarta y queda anotado.
+        if ev["multiplo"] > tope_creible:
+            increibles += 1
+            ex("""UPDATE item_raw SET crudo = crudo || %s WHERE id = %s""",
+               (json.dumps({"descartado": f"multiplo increible {ev['multiplo']:.0f}x "
+                                          f"con precio {it['precio']}"}), it["id"]))
+            continue
+
         ex(
             """INSERT INTO oportunidad (item_raw, producto, v_liq, p_max, objetivo,
                                         multiplo, score, g_conocido)
@@ -95,7 +107,9 @@ def correr() -> str:
            WHERE o.item_raw = i.id AND o.estado IN ('nueva','avisada','watchlist')
              AND i.precio > o.p_max""",
     )
-    return f"{len(candidatos)} evaluados, {marcadas} oportunidades, {muertas} pasadas de precio"
+    extra = f", {increibles} descartadas por multiplo increible" if increibles else ""
+    return (f"{len(candidatos)} evaluados, {marcadas} oportunidades, "
+            f"{muertas} pasadas de precio{extra}")
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@ Ritmo:
   fetch_aduanas   15 min  remates (1 min cerca del cierre)
   price_index      6 h    recalcular el ancla
   inventory_sync  12 h    tu inventario desde tu cuenta ML
+  ventas_ml        2 h    tus ventas cerradas -> indice de precios
   gen_listing      1 h    redactar borradores
   publish_ml      15 min  subir lo aprobado
   sync_stock       5 min  evitar vender dos veces
@@ -42,7 +43,7 @@ from app.config import BASE_PUBLICA, aduanas, p
 from app.jobs import envuelto
 from app.jobs import (alert, backtest, escalate, fetch_aduanas, fetch_ml,
                       gen_listing, inventory_sync, negociar_compra, negotiate,
-                      normalize, poll_ml, price_index, publish_ml, reply_bot,
+                      normalize, poll_ml, price_index, publish_ml, reply_bot, ventas_ml,
                       report, reprice, score, sync_stock, trends, webhook_ml)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -88,6 +89,11 @@ def main() -> None:
 
     # --- bloque 2: publicar -------------------------------------------
     cada(12 * 3600, "inventory_sync", inventory_sync)
+    # Tus ventas cerradas: el mejor precio que hay. ML cerro la busqueda
+    # publica (403 PolicyAgent), asi que esta es la unica fuente de ML que
+    # queda para el indice — y es mejor que la que se perdio, porque dice lo
+    # que la gente PAGO y no lo que pedia.
+    cada(2 * 3600, "ventas_ml", ventas_ml)
     cada(3600, "gen_listing", gen_listing)
     cada(15 * 60, "publish_ml", publish_ml)
     cada(5 * 60, "sync_stock", sync_stock)

@@ -9,6 +9,8 @@ token dura 6 meses: cuando quedan 7 dias el bot te avisa por Telegram.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import secrets
 import time
 from datetime import datetime, timedelta, timezone
@@ -33,18 +35,32 @@ class RateLimit(Exception):
 
 # ---------------------------------------------------------------- OAuth
 def url_login() -> str:
-    """Genera el link de login con un `state` aleatorio de un solo uso.
+    """Genera el link de login con `state` y PKCE, los dos de un solo uso.
 
-    Sin esto, cualquiera que logre que tu navegador visite el callback con SU
-    codigo te deja el sistema conectado a la cuenta de ML de otro, y el bot
-    empieza a publicar y negociar ahi. Es barato de evitar: se guarda el state
-    antes de mandarte y se exige que vuelva igual.
+    `state`: sin esto, cualquiera que logre que tu navegador visite el callback
+    con SU codigo te deja el sistema conectado a la cuenta de ML de otro, y el
+    bot empieza a publicar y negociar ahi.
+
+    `PKCE`: la app tiene "Requiere PKCE" encendido en el panel de ML, asi que
+    el canje del codigo pide un `code_verifier`. Sin el, ML responde
+    400 "code_verifier is a required parameter" — y no lo dice en el redirect,
+    lo dice recien al canjear, que es donde se descubrio (28-ago).
+
+    Como funciona, en simple: se inventa un secreto (`verifier`), se manda su
+    HUELLA (`challenge`) al pedir el login, y el secreto entero recien al
+    canjear. Asi, aunque alguien intercepte el codigo en el camino, no puede
+    canjearlo: le falta el secreto, que nunca viajo por el navegador.
     """
     estado = secrets.token_urlsafe(24)
+    verifier = secrets.token_urlsafe(64)[:96]     # ML acepta 43-128 caracteres
+    challenge = base64.urlsafe_b64encode(
+        hashlib.sha256(verifier.encode()).digest()).decode().rstrip("=")
     kv_set("oauth_state", estado)
+    kv_set("oauth_verifier", verifier)
     return (
         f"{AUTH}?response_type=code&client_id={ML_CLIENT_ID}"
         f"&redirect_uri={ML_REDIRECT_URI}&state={estado}"
+        f"&code_challenge={challenge}&code_challenge_method=S256"
     )
 
 
@@ -76,15 +92,26 @@ def _guardar(tok: dict) -> None:
 def canjear_codigo(code: str) -> dict:
     """Paso final del login: el codigo de la URL se cambia por tokens."""
     with httpx.Client(timeout=30.0) as c:
-        r = c.post(f"{BASE}/oauth/token", data={
+        cuerpo = {
             "grant_type": "authorization_code",
             "client_id": ML_CLIENT_ID,
             "client_secret": ML_CLIENT_SECRET,
             "code": code,
             "redirect_uri": ML_REDIRECT_URI,
-        }, headers={"Accept": "application/json"})
-        r.raise_for_status()
+        }
+        # El secreto de PKCE que se guardo al generar el link.
+        verifier = kv_get("oauth_verifier")
+        if verifier:
+            cuerpo["code_verifier"] = str(verifier)
+        r = c.post(f"{BASE}/oauth/token", data=cuerpo,
+                   headers={"Accept": "application/json"})
+        if r.status_code >= 400:
+            # ML explica el motivo en el cuerpo y raise_for_status lo tira a la
+            # basura. Sin esto, un 400 no decia nada y habia que reproducirlo a
+            # mano para enterarse de que faltaba el code_verifier.
+            raise RuntimeError(f"ML {r.status_code}: {r.text[:200]}")
         tok = r.json()
+    kv_set("oauth_verifier", "")   # un solo uso, igual que el state
     _guardar(tok)
     return tok
 

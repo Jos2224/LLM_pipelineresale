@@ -566,6 +566,83 @@ las contestaban los dos scripts, cada uno por su lado, a la misma persona.
 
 ---
 
+## 5d. 28-ago: MercadoLibre cerro su API de busqueda publica
+
+**Esto cambia un supuesto del negocio, no es un bug que se arregle.**
+
+Al conectar la cuenta por primera vez, las 12 busquedas trajeron 0 items. La causa:
+
+```
+403 PolicyAgent  /sites/MLC/search       <- de aca salia el precio de mercado
+403 PolicyAgent  /items/{id}
+403 PolicyAgent  /sites/MLC/categories
+403 PolicyAgent  /users/{id}/items/search
+```
+
+Con token y **sin token** — o sea no es un permiso que falte, es que ML lo cerro
+para terceros. Probado las dos formas antes de concluirlo.
+
+**Lo que si funciona con tu cuenta:**
+
+| endpoint | para que |
+|---|---|
+| `/orders/search` | tus ventas -> avisarte, y el indice de precios (§5e) |
+| `/questions/search` | preguntas de compradores -> `reply_bot` |
+| `/users/me` | tu cuenta |
+| `POST /items` | **publicar si funciona** — el 400 que devuelve es de validacion (`family_name`), no de permiso |
+
+**Consecuencia directa:** el precio de mercado ya no puede venir de ML. Lo que se
+construyo horas antes ese mismo dia — que Facebook alimente el indice — dejo de ser
+una mejora y paso a ser la fuente principal. Y se sumo una segunda, mejor todavia.
+
+## 5e. Tus ventas cerradas: el mejor precio que existe
+
+`app/jobs/ventas_ml.py` (script 35, cada 2 h). De `/orders/search` sale el
+`unit_price` de cada venta tuya.
+
+```
+una publicacion activa  dice lo que alguien PIDE
+una venta cerrada       dice lo que alguien PAGO
+```
+
+Todo el indice se construia con precios pedidos, con la nota honesta de que era "la
+mejor aproximacion posible sin romper reglas". Esto **no es una aproximacion**. Por eso
+entra con peso 3, el maximo que `price_index.py` multiplica.
+
+Limitacion clara: solo ves TUS ventas. Al principio son pocas, asi que el sistema se
+apoya en Facebook. A medida que vendas, este indice se vuelve el bueno.
+
+**De donde sale el precio, en orden:**
+
+```
+1. tus ventas cerradas en ML     lo que se PAGO      (peso 3)
+2. publicaciones de Facebook     lo que se PIDE      (peso 1)
+3. sin datos -> el bot te pregunta el precio y no inventa nada
+```
+
+## 5f. PKCE, y un error que se perdia
+
+El primer canje de codigo fallo con `400 Bad Request` y nada mas. Reproducido a mano,
+ML decia: `code_verifier is a required parameter`. La app tiene **"Requiere PKCE"**
+encendido en el panel y `ml_api` no lo implementaba.
+
+Implementado en `url_login()` + `canjear_codigo()`: se inventa un secreto, se manda su
+huella SHA-256 al pedir el login, y el secreto entero recien al canjear. Aunque alguien
+intercepte el codigo, no puede usarlo: le falta el secreto, que nunca viajo por el
+navegador.
+
+> **El error se perdia por `raise_for_status()`**, que tira el cuerpo de la respuesta a
+> la basura. Por eso el primer intento solo decia "400" y hubo que reproducirlo a mano.
+> Ahora el motivo de ML sube tal cual hasta el Telegram.
+
+Misma leccion, otra vez, en `ventas_ml.py`: un `except Exception` a secas reportaba
+"sin login de ML todavia" cuando lo que fallaba era que llame a una funcion que no
+existe (`mi_id` en vez de `usuario_id`). **Atrapar solo la excepcion que se sabe
+manejar** — si no, un error de programacion se disfraza de problema de configuracion y
+manda a buscar al lado equivocado.
+
+---
+
 ## 6. Comandos
 
 ```fish

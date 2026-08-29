@@ -109,8 +109,22 @@ def cmd_codigo(chat: str, arg: str) -> None:
     # El state viaja en la misma URL. Se exige que sea el que generamos, para
     # que nadie te pueda dejar conectado a la cuenta de ML de otra persona.
     ms = re.search(r"[?&]state=([^&\s]+)", texto)
-    if not ml_api.verificar_state(ms.group(1) if ms else None):
-        B.enviar("esa URL no salio de este bot o ya se uso. Pide una nueva con /conectar",
+    # El mensaje distingue los dos casos. Antes decia lo mismo para ambos y no
+    # habia forma de saber si faltaba pegar mas URL o si el link ya vencio.
+    if not ms:
+        B.enviar(
+            "En lo que pegaste viene el <b>code</b> pero no el <b>state</b>, "
+            "y sin los dos no puedo seguir.\n\n"
+            "Pegame la <b>barra de direcciones COMPLETA</b>, tal cual, desde "
+            "<code>https://</code> hasta el final. Se ve asi:\n\n"
+            "<code>/codigo https://TU-SERVIDOR.ejemplo.net/oauth/callback"
+            "?code=TG-xxxx&amp;state=yyyy</code>\n\n"
+            "Si la pagina te dio error 404, da igual: lo que sirve es la direccion.",
+            chat=chat)
+        return
+    if not ml_api.verificar_state(ms.group(1)):
+        B.enviar("Ese link ya se uso o no salio de este bot.\n"
+                 "Manda /conectar y hazlo de nuevo — el codigo dura pocos minutos.",
                  chat=chat)
         return
     try:

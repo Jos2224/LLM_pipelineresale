@@ -1,0 +1,34 @@
+#!/usr/bin/env bash
+# Atajos. Uso:  ~/cazador/bin/cazador <comando>
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+case "${1:-ayuda}" in
+  arriba)   docker compose up -d --build ;;
+  abajo)    docker compose down ;;
+  logs)     docker compose logs -f --tail=80 "${2:-}" ;;
+  estado)   docker compose ps ;;
+  psql)     docker exec -it cazador-postgres psql -U cazador -d cazador ;;
+  job)      docker compose run --rm worker python -m "app.jobs.${2:?falta el nombre del job}" ;;
+  test)     for t in test_extract test_parseo test_fb test_specs test_vision; do
+              echo "== $t"
+              docker compose run --rm -e PYTHONPATH=/app -v ./bin:/app/bin:ro \
+                worker python "/app/bin/$t.py" 2>&1 | grep -v Container
+            done ;;
+  salud)    curl -s http://127.0.0.1:8010/salud; echo ;;
+  errores)  docker exec -i cazador-postgres psql -U cazador -d cazador -c \
+              "SELECT ts, job, detalle FROM job_log WHERE NOT ok ORDER BY ts DESC LIMIT 20" ;;
+  publico)  echo "tailscale serve --bg --https=443 --set-path=/cazador http://127.0.0.1:8010" ;;
+  *)
+    cat <<'FIN'
+cazador arriba          levanta todo
+cazador abajo           lo baja
+cazador logs [servicio] mira logs
+cazador estado          contenedores
+cazador job fetch_ml    corre un script a mano
+cazador salud           chequeo rapido de la api
+cazador errores         ultimos 20 fallos de jobs
+cazador psql            consola de la base
+FIN
+    ;;
+esac

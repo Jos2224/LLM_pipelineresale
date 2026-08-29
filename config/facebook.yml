@@ -1,0 +1,43 @@
+# TODOS los selectores de Facebook viven aca. El codigo no tiene ninguno
+# adentro, a proposito: FB cambia el diseño cada pocas semanas y cuando pase,
+# el arreglo es editar este archivo — no tocar Python, no reconstruir imagen.
+#
+# Como arreglar uno cuando se rompa:
+#   1. el bot te avisa por Telegram cual selector fallo y en que paso
+#   2. abres esa pagina en tu navegador, F12, click derecho en el elemento
+#      -> Copiar -> Copiar selector
+#   3. lo pegas aca y listo
+#
+# Cada campo acepta VARIOS selectores separados por coma: se prueban en orden
+# y basta que uno pegue. Asi un cambio de diseño no rompe nada la primera vez.
+
+inbox:
+  url: https://www.facebook.com/marketplace/inbox
+  # Cada conversacion de Marketplace. El href trae el id del hilo.
+  hilo_link: 'a[href*="/marketplace/t/"]'
+
+hilo:
+  # De que publicacion habla este hilo. Se usa para pegarlo con tu inventario.
+  producto_titulo: '[role="main"] a[href*="/marketplace/item/"] span, [role="main"] h2 span'
+  producto_link: '[role="main"] a[href*="/marketplace/item/"]'
+  # Las burbujas de la conversacion, en orden.
+  burbuja: '[role="row"] div[dir="auto"]'
+  # Las burbujas TUYAS llevan esto; sirve para saber quien hablo ultimo.
+  burbuja_mia: '[role="row"] [data-scope="messages_table"] [aria-label*="Tú"]'
+  caja_texto: 'div[contenteditable="true"][role="textbox"]'
+  boton_enviar: 'div[aria-label="Enviar"], div[aria-label="Press Enter to send"]'
+
+publicar:
+  url: https://www.facebook.com/marketplace/create/item
+  input_fotos: 'input[type="file"]'
+  # Estos son etiquetas visibles, no selectores CSS: se buscan por el texto
+  # que ves en pantalla. Si tienes FB en ingles, cambia a Title/Price/etc.
+  label_titulo: Título
+  label_precio: Precio
+  label_descripcion: Descripción
+  boton_siguiente: Siguiente
+  boton_publicar: Publicar
+
+buscar:
+  url: https://www.facebook.com/marketplace/santiago/search?query={}&sortBy=creation_time_descend
+  resultado: 'a[href*="/marketplace/item/"]'

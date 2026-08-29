@@ -1,0 +1,149 @@
+# Cazador — stack de deteccion / publicacion / negociacion.
+#
+# Todo escucha SOLO en 127.0.0.1. Lo unico que sale a internet es el path
+# /cazador del Funnel de Tailscale, que apunta a api:8010.
+#
+# Puertos elegidos para no chocar con lo que ya corre en el servidor:
+#   5432 remato-online   5433 thinkpads   -> cazador usa 5434
+#   6379 libre pero reservado             -> cazador usa 6380
+#   4000/4100/4173/8080/8443/9200 ocupados-> cazador usa 8010
+
+name: cazador
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: cazador-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cazador
+      POSTGRES_PASSWORD: ${PG_PASSWORD}
+      POSTGRES_DB: cazador
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/schema.sql:/docker-entrypoint-initdb.d/10-schema.sql:ro
+    ports:
+      - "127.0.0.1:5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cazador -d cazador"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: cazador-redis
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes", "--save", "60", "100"]
+    volumes:
+      - redisdata:/data
+    ports:
+      - "127.0.0.1:6380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: .
+    container_name: cazador-api
+    restart: unless-stopped
+    command: ["uvicorn", "app.api.main:app", "--host", "0.0.0.0", "--port", "8010"]
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@postgres:5432/cazador
+      REDIS_URL: redis://redis:6379/0
+      OLLAMA_URL: http://host.docker.internal:11434
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    ports:
+      - "127.0.0.1:8010:8010"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # worker y bot van en red de host por una sola razon: Ollama escucha solo en
+  # 127.0.0.1 del servidor y cambiar eso pide root y lo dejaria expuesto a la
+  # LAN. Con red de host llegan a Ollama, a postgres (127.0.0.1:5434) y a
+  # redis (127.0.0.1:6380) sin abrir NADA nuevo: ninguno de los dos escucha.
+  worker:
+    build: .
+    container_name: cazador-worker
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "-m", "app.worker.main"]
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@127.0.0.1:5434/cazador
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OLLAMA_URL: http://127.0.0.1:11434
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # @tu_bot_cazador — te avisa de ofertas y negocia con el vendedor
+  bot-cazador:
+    build: .
+    container_name: cazador-bot-cazador
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "-m", "app.bot.cazador"]
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@127.0.0.1:5434/cazador
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OLLAMA_URL: http://127.0.0.1:11434
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # @tu_bot_publicador — le mandas fotos y publica en ML y Facebook
+  bot-publicador:
+    build: .
+    container_name: cazador-bot-publicador
+    restart: unless-stopped
+    network_mode: host
+    command: ["python", "-m", "app.bot.publicador"]
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@127.0.0.1:5434/cazador
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OLLAMA_URL: http://127.0.0.1:11434
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # Navegador. No arranca solo: es un servicio que se invoca a demanda.
+  #   docker compose --profile scraper build
+  #   docker compose --profile scraper run --rm scraper python -m app.jobs.fetch_aduanas
+  scraper:
+    build:
+      context: .
+      dockerfile: Dockerfile.playwright
+    profiles: ["scraper"]
+    network_mode: host
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@127.0.0.1:5434/cazador
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OLLAMA_URL: http://127.0.0.1:11434
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+
+volumes:
+  pgdata:
+  redisdata:

@@ -1,0 +1,147 @@
+# Reglas de plata. TODO lo que decide precio vive aca, no en el LLM.
+# Cambiar un numero aca cambia el comportamiento sin tocar codigo.
+
+liquidacion:
+  # V_liq = factor_liq * P50 del indice
+  factor_liq: 0.65
+
+compra:
+  # Tus dos numeros, tal cual los pediste:
+  #
+  #   TECHO    = V_liq / 2.0   nunca pagas mas que esto. Al revenderlo ganas
+  #                            al menos 2x lo que pusiste. Es el minimo que
+  #                            hace que valga la pena moverse.
+  #   OBJETIVO = V_liq / 2.5   donde el bot trata de cerrar la negociacion.
+  #                            Ahi el articulo vale 2,5x lo que pagaste.
+  #
+  # Alerta = el precio PUBLICADO ya esta bajo el techo. Osea: sin negociar
+  # siquiera, ya ganas 2x. Esas son las que te llegan al Telegram.
+  # Comprando entre objetivo y techo, el promedio cae en ~2,2x, que es la meta.
+  multiplo_techo: 2.0
+  multiplo_objetivo: 2.5
+  costos_fijos: 12000 # T: flete + limpieza + repuesto tipico. Solo se MUESTRA
+                      # en la alerta para que veas el margen real; no cambia
+                      # tus multiplos.
+
+llm:
+  # Que modelo usa cada tarea. Vacio = el de OLLAMA_MODELO en .env.
+  #
+  # Medido el 28-ago en el servidor (P1000 de 4 GB, el 27B no cabe y corre en CPU):
+  #   qwen3.8:27b   0,9 palabras/s   + 34 s la primera vez que se carga
+  #   qwen3 8B      5,2 palabras/s
+  #
+  # Por eso el reparto no es "el mas grande para todo": catalogar son 40
+  # titulos cada 2 minutos y con el 27B nunca terminaria un ciclo. Las otras
+  # tres son de a una y ahi la calidad se nota.
+  catalogar: huihui_ai/qwen3-abliterated:8b   # normalize.py, volumen alto
+  leer_vendedor: qwen3.8:27b                  # negociar_compra.py
+  redactar: qwen3.8:27b                       # gen_listing.py, publicador
+  responder: qwen3.8:27b                      # reply_bot.py, reply_fb.py
+  ver: qwen3.8:27b                            # vision.py — TIENE que ver.
+                                              # El 8B no tiene ojos: si pones
+                                              # uno de solo texto aca, ignora
+                                              # las fotos y no identifica nada.
+
+vision:
+  # Identificar el producto MIRANDO las fotos que mandas por Telegram.
+  max_fotos: 2       # cada foto extra son varios minutos mas en CPU
+  lado_max: 1024     # se achican antes de mandarlas: para leer "T480" en una
+                     # tapa sobra con 1024 px, y una foto de celular son 4000
+  timeout_seg: 900   # 15 min. En CPU mirar dos fotos es lento de verdad.
+
+specs:
+  # Un T480 de 8GB/256 y uno de 32GB/1TB no valen lo mismo. El sistema usa
+  # primero el estante EXACTO (mismo modelo, misma RAM, mismo disco) y solo si
+  # ese estante no junta muestras cae a la mediana del modelo, corregida con
+  # estos numeros.
+  #
+  # El equipamiento se resume en UN puntaje:
+  #     puntaje = log2(RAM) + peso_disco * log2(disco)
+  # Duplicar la RAM suma 1 punto; duplicar el disco suma peso_disco.
+  peso_disco: 0.5         # el disco pesa la mitad que la RAM en un usado
+  # Cuanto sube el precio por punto, en base 2. 0.30 = +23% por punto.
+  # Se usa SOLO cuando no se pudo medir en los datos del propio producto.
+  coef_spec: 0.30
+  min_muestras_tramo: 3   # muestras que necesita un estante para usarse solo
+  min_para_medir: 6       # observaciones que necesita un producto para medir
+                          # sus propios coeficientes en vez de usar los de aca
+  coef_maximo: 0.6        # recorte: sobre esto el dato es ruido, no senal
+  factor_minimo: 0.45     # el ajuste jamas baja el precio a menos de la mitad
+  factor_maximo: 2.2      # ni lo sube a mas del doble
+
+remate:
+  # Modelo propio: B = P0 * sqrt(G).  G = competidores en sala.
+  p25: 0.907
+  p50: 1.073
+  p80: 1.646
+  # Si G es desconocido la alerta sale marcada G=? y usa este supuesto
+  # SOLO para ordenar, nunca para subir P_max.
+  g_supuesto: 12
+
+venta:
+  factor_precio: 0.65     # precio de lista = factor * P50
+  factor_piso: 0.85       # piso = factor_precio * P50 * factor_piso
+  horizonte_dias: 60
+  baja_cada_dias: 20
+  baja_pct: 0.05
+
+negociacion:
+  # --- cuando TE ofertan a ti (vendiendo) ---
+  acepta_desde: 1.00      # oferta >= 100% del piso -> acepta
+  contraoferta_desde: 0.90 # entre 90% y 100% -> contraoferta al piso
+  # bajo 90% -> rechaza cortes
+
+compra_negociacion:
+  # --- cuando el bot le escribe al vendedor (comprando) ---
+  # Primero saluda y pregunta. Recien cuando el vendedor responde, ofrece.
+  # Un "hola, ¿lo dejas en X?" en frio lo ignoran; un saludo abre conversacion.
+  saluda_primero: true
+  max_rondas: 3           # mensajes que manda el bot antes de rendirse
+  max_por_dia: 12         # negociaciones NUEVAS por dia (freno anti-spam de ML)
+  pausa_entre_min: 8      # minutos entre mensaje y mensaje
+  espera_respuesta_h: 48  # sin respuesta en 48 h -> se cierra sola
+  # Cuanto sube el bot entre ronda y ronda, del objetivo hacia el techo.
+  # 0.5 = a mitad de camino. Nunca llega al techo en la ronda 1.
+  paso_hacia_techo: 0.5
+
+ritmo:
+  ml_busquedas_por_ciclo: 25
+  ml_pausa_seg: 1.2
+  fb_publicaciones_dia: 5
+  fb_pausa_min: [3, 5]
+
+facebook:
+  # ---------------------------------------------------------------
+  # CANDADO DE CUENTA. Regla tuya: la cuenta personal NO se automatiza.
+  # ---------------------------------------------------------------
+  # Aca van los numeros de cuenta que el sistema tiene PROHIBIDO usar, aunque
+  # el navegador quede con esa sesion abierta por error. Es la ultima red.
+  #
+  # Como sacar tu numero: entra a facebook.com con tu cuenta personal, F12 ->
+  # Application -> Cookies -> c_user. Ese numero, entre comillas, aca abajo.
+  # Tambien lo imprime bin/login-fb.sh cuando entras.
+  cuentas_prohibidas: []
+  # Ejemplo:
+  # cuentas_prohibidas: ["100001234567890"]   # <- tu cuenta personal
+  #
+  # La cuenta PERMITIDA no se escribe aca: la apruebas a mano en
+  # bin/login-fb.sh y queda en data/perfiles/facebook/cuenta.json. Asi no se
+  # puede habilitar una cuenta editando un YAML por accidente.
+
+  # --- contestar mensajes de compradores en Marketplace ---
+  responder_auto: false   # false = redacta y te lo manda por Telegram con
+                          # boton [Enviar]. true = contesta solo.
+  hilos_por_ciclo: 8      # conversaciones que abre en cada pasada
+  respuestas_dia: 20      # tope duro de mensajes enviados por dia
+  pausa_resp_seg: [45, 150]  # espera entre respuesta y respuesta
+  burbujas_leer: 12       # cuantos mensajes del hilo lee para el contexto
+  parecido_minimo: 0.5    # cuanto tiene que parecerse el titulo del hilo al
+                          # de tu publicacion para darla por identificada.
+                          # Bajo eso NO adivina: te pregunta a ti.
+
+modo:
+  # Interruptores de seguridad. Todo arranca apagado o en borrador.
+  publicar_auto: false      # false = todo queda en borrador esperando boton
+  negociar_auto: false      # false = escala todo a Telegram
+  fb_activo: false          # ultimo en encenderse, riesgo de ban
+  borradores_de_prueba: 20  # las primeras N publicaciones piden boton si o si

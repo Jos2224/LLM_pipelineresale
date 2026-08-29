@@ -1,0 +1,17 @@
+# Imagen aparte SOLO para los scripts que necesitan navegador (11 aduanas,
+# 12 y 23 facebook). Pesa ~1.5 GB, por eso no va en la imagen base: el resto
+# del stack arranca en segundos sin ella.
+#
+#   docker compose --profile scraper build
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
+
+ENV PYTHONUNBUFFERED=1 TZ=America/Santiago
+WORKDIR /app
+
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt playwright==1.49.0
+
+COPY app ./app
+COPY db ./db
+
+CMD ["python", "-m", "app.jobs.fetch_aduanas"]

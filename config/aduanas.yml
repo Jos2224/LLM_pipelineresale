@@ -1,0 +1,44 @@
+# Script 11 — scraper de remates, 100% configurable.
+#
+# No hay codigo con selectores adentro: todo lo que cambia entre un portal y
+# otro esta aca. Cuando me pases la URL, solo se llenan estos campos y el
+# script arranca. Mientras "activo: false" el script no toca la red.
+
+activo: false
+
+portal:
+  nombre: "por definir"
+  url_listado: ""        # pagina con la lista de lotes
+  # Si el portal necesita login, se guarda un perfil de navegador persistente
+  # en data/perfiles/aduanas — se entra UNA vez y queda.
+  requiere_login: false
+
+espera:
+  # Cuanto esperar a que el JavaScript pinte los numeros antes de leer.
+  render_ms: 2500
+  # Selector que, si aparece, significa "la pagina ya cargo de verdad".
+  listo_cuando: ""
+
+selectores:
+  # CSS. Cada lote del listado.
+  lote: ""
+  titulo: ""
+  precio_base: ""        # P0
+  # G = cuanta gente esta pujando / inscrita. Lo mas importante y lo mas
+  # volatil. Si el selector viene vacio o no matchea, el item se guarda con
+  # g = null y la alerta sale con "G=?" en rojo. NUNCA se inventa un G.
+  competidores: ""
+  cierre: ""             # fecha/hora de cierre
+  foto: ""
+  link: ""
+
+# Regex para sacar el numero limpio del texto ("12 postores" -> 12)
+limpiar:
+  precio: '[^0-9]'
+  competidores: '[^0-9]'
+
+ritmo:
+  cada_min: 15
+  # Cuando falta poco para el cierre, mira mas seguido.
+  cerca_del_cierre_min: 1
+  umbral_cierre_min: 30

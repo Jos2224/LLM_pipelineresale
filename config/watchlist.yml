@@ -1,0 +1,29 @@
+# Que cazar. Cada entrada es una busqueda en MercadoLibre.
+#
+# Esta lista arranca sembrada desde tu propio inventario de ML: el script 20
+# lee lo que ya vendes y propone keywords por Telegram. Tu solo aprietas
+# [Agregar] o [No]. Lo que apruebes se escribe aca solo.
+#
+# Campos:
+#   q          texto de busqueda
+#   max_precio tope duro en CLP; sobre eso ni mira (opcional)
+#   condicion  new | used | all
+#   activa     false = queda guardada pero no se consulta
+
+keywords:
+  - {q: "thinkpad t480", condicion: all, activa: true}
+  - {q: "thinkpad t490", condicion: all, activa: true}
+  - {q: "thinkpad x1 carbon", condicion: all, activa: true}
+  - {q: "notebook lenovo i5 8gb", condicion: used, activa: true}
+  - {q: "notebook dell latitude", condicion: used, activa: true}
+  - {q: "macbook pro 2015", condicion: used, activa: true}
+  - {q: "monitor 24 ips", condicion: used, activa: true}
+  - {q: "disco ssd 500gb", condicion: all, activa: true}
+  - {q: "memoria ram ddr4 sodimm 8gb", condicion: all, activa: true}
+  - {q: "cargador thinkpad original", condicion: all, activa: true}
+
+# Lote de remate: no son keywords sino lotes completos. score.py les aplica
+# el modelo B = P0 * sqrt(G) en vez del indice de ML.
+remates:
+  - {q: "lote notebooks", activa: true}
+  - {q: "lote celulares", activa: true}

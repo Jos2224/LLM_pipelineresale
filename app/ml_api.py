@@ -1,0 +1,271 @@
+"""Cliente de la API oficial de MercadoLibre.
+
+Por que API y no scraping: ML bloquea scrapers y te puede cerrar la cuenta.
+La API es gratis, te da precio, fotos, categoria y vendidos, y ademas te
+manda notificaciones push cuando alguien pregunta o compra.
+
+El token dura 6 horas y se renueva solo con el refresh token. El refresh
+token dura 6 meses: cuando quedan 7 dias el bot te avisa por Telegram.
+"""
+from __future__ import annotations
+
+import secrets
+import time
+from datetime import datetime, timedelta, timezone
+
+import httpx
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
+
+from app.config import ML_CLIENT_ID, ML_CLIENT_SECRET, ML_REDIRECT_URI, ML_SITE
+from app.db import ex, kv_get, kv_set, q1
+
+BASE = "https://api.mercadolibre.com"
+AUTH = "https://auth.mercadolibre.cl/authorization"
+
+
+class SinToken(Exception):
+    pass
+
+
+class RateLimit(Exception):
+    pass
+
+
+# ---------------------------------------------------------------- OAuth
+def url_login() -> str:
+    """Genera el link de login con un `state` aleatorio de un solo uso.
+
+    Sin esto, cualquiera que logre que tu navegador visite el callback con SU
+    codigo te deja el sistema conectado a la cuenta de ML de otro, y el bot
+    empieza a publicar y negociar ahi. Es barato de evitar: se guarda el state
+    antes de mandarte y se exige que vuelva igual.
+    """
+    estado = secrets.token_urlsafe(24)
+    kv_set("oauth_state", estado)
+    return (
+        f"{AUTH}?response_type=code&client_id={ML_CLIENT_ID}"
+        f"&redirect_uri={ML_REDIRECT_URI}&state={estado}"
+    )
+
+
+def verificar_state(state: str | None) -> bool:
+    esperado = kv_get("oauth_state")
+    if not esperado:
+        return False
+    ok = bool(state) and secrets.compare_digest(str(state), str(esperado))
+    if ok:
+        kv_set("oauth_state", "")   # un solo uso
+    return ok
+
+
+def _guardar(tok: dict) -> None:
+    expira = datetime.now(timezone.utc) + timedelta(seconds=int(tok.get("expires_in", 21600)) - 300)
+    ex(
+        """INSERT INTO oauth_ml (id, ml_user_id, access_token, refresh_token, expira_en, actualizado)
+           VALUES (1, %s, %s, %s, %s, now())
+           ON CONFLICT (id) DO UPDATE SET
+             ml_user_id = EXCLUDED.ml_user_id,
+             access_token = EXCLUDED.access_token,
+             refresh_token = COALESCE(EXCLUDED.refresh_token, oauth_ml.refresh_token),
+             expira_en = EXCLUDED.expira_en,
+             actualizado = now()""",
+        (tok.get("user_id"), tok["access_token"], tok.get("refresh_token"), expira),
+    )
+
+
+def canjear_codigo(code: str) -> dict:
+    """Paso final del login: el codigo de la URL se cambia por tokens."""
+    with httpx.Client(timeout=30.0) as c:
+        r = c.post(f"{BASE}/oauth/token", data={
+            "grant_type": "authorization_code",
+            "client_id": ML_CLIENT_ID,
+            "client_secret": ML_CLIENT_SECRET,
+            "code": code,
+            "redirect_uri": ML_REDIRECT_URI,
+        }, headers={"Accept": "application/json"})
+        r.raise_for_status()
+        tok = r.json()
+    _guardar(tok)
+    return tok
+
+
+def _refrescar(refresh_token: str) -> str:
+    with httpx.Client(timeout=30.0) as c:
+        r = c.post(f"{BASE}/oauth/token", data={
+            "grant_type": "refresh_token",
+            "client_id": ML_CLIENT_ID,
+            "client_secret": ML_CLIENT_SECRET,
+            "refresh_token": refresh_token,
+        }, headers={"Accept": "application/json"})
+        r.raise_for_status()
+        tok = r.json()
+    _guardar(tok)
+    return tok["access_token"]
+
+
+def token() -> str:
+    fila = q1("SELECT access_token, refresh_token, expira_en FROM oauth_ml WHERE id = 1")
+    if not fila or not fila["access_token"]:
+        raise SinToken("no hay login de MercadoLibre todavia")
+    if fila["expira_en"] and fila["expira_en"] > datetime.now(timezone.utc):
+        return fila["access_token"]
+    if not fila["refresh_token"]:
+        raise SinToken("token vencido y sin refresh token: hay que volver a entrar")
+    return _refrescar(fila["refresh_token"])
+
+
+def usuario_id() -> int | None:
+    fila = q1("SELECT ml_user_id FROM oauth_ml WHERE id = 1")
+    return fila["ml_user_id"] if fila else None
+
+
+def dias_para_vencer() -> int | None:
+    fila = q1("SELECT actualizado FROM oauth_ml WHERE id = 1")
+    if not fila or not fila["actualizado"]:
+        return None
+    # El refresh token vive 6 meses desde el ultimo canje.
+    vence = fila["actualizado"] + timedelta(days=180)
+    return (vence - datetime.now(timezone.utc)).days
+
+
+# ---------------------------------------------------------------- HTTP
+@retry(retry=retry_if_exception_type(RateLimit),
+       wait=wait_exponential(multiplier=2, min=2, max=60),
+       stop=stop_after_attempt(5), reraise=True)
+def _get(ruta: str, params: dict | None = None, auth: bool = True) -> dict:
+    cab = {"Accept": "application/json"}
+    if auth:
+        cab["Authorization"] = f"Bearer {token()}"
+    with httpx.Client(timeout=30.0) as c:
+        r = c.get(f"{BASE}{ruta}", params=params or {}, headers=cab)
+    if r.status_code == 429:
+        raise RateLimit(ruta)
+    r.raise_for_status()
+    return r.json()
+
+
+def _post(ruta: str, cuerpo: dict) -> dict:
+    with httpx.Client(timeout=60.0) as c:
+        r = c.post(f"{BASE}{ruta}", json=cuerpo,
+                   headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json"})
+    if r.status_code == 429:
+        raise RateLimit(ruta)
+    r.raise_for_status()
+    return r.json()
+
+
+def _put(ruta: str, cuerpo: dict) -> dict:
+    with httpx.Client(timeout=60.0) as c:
+        r = c.put(f"{BASE}{ruta}", json=cuerpo,
+                  headers={"Authorization": f"Bearer {token()}", "Content-Type": "application/json"})
+    r.raise_for_status()
+    return r.json()
+
+
+# ---------------------------------------------------------------- lectura
+def buscar(q_texto: str, limite: int = 50, offset: int = 0, condicion: str = "all") -> dict:
+    params = {"q": q_texto, "limit": min(limite, 50), "offset": offset}
+    if condicion in ("new", "used"):
+        params["ITEM_CONDITION"] = "2230284" if condicion == "new" else "2230581"
+    return _get(f"/sites/{ML_SITE}/search", params)
+
+
+def item(item_id: str) -> dict:
+    return _get(f"/items/{item_id}")
+
+
+def items(ids: list[str]) -> list[dict]:
+    salida = []
+    for i in range(0, len(ids), 20):
+        lote = _get("/items", {"ids": ",".join(ids[i:i + 20])})
+        salida.extend(x.get("body", {}) for x in lote if x.get("code") == 200)
+        time.sleep(0.3)
+    return salida
+
+
+def mis_items(estado: str = "active") -> list[str]:
+    """Todas mis publicaciones. Usa scan porque offset muere en 1000."""
+    uid = usuario_id()
+    if not uid:
+        raise SinToken("falta el user_id de ML")
+    ids: list[str] = []
+    scroll = None
+    while True:
+        params = {"search_type": "scan", "limit": 100, "status": estado}
+        if scroll:
+            params["scroll_id"] = scroll
+        d = _get(f"/users/{uid}/items/search", params)
+        nuevos = d.get("results", [])
+        ids.extend(nuevos)
+        scroll = d.get("scroll_id")
+        if not nuevos or not scroll:
+            break
+        time.sleep(0.3)
+    return ids
+
+
+def categoria_de(titulo: str) -> dict | None:
+    d = _get(f"/sites/{ML_SITE}/domain_discovery/search", {"q": titulo}, auth=False)
+    return d[0] if isinstance(d, list) and d else None
+
+
+def atributos_categoria(cat_id: str) -> list[dict]:
+    return _get(f"/categories/{cat_id}/attributes", auth=False)
+
+
+def preguntas(item_id: str) -> list[dict]:
+    d = _get("/questions/search", {"item": item_id, "api_version": 4})
+    return d.get("questions", [])
+
+
+def recurso(path: str) -> dict:
+    """El webhook manda un path relativo; esto lo resuelve."""
+    return _get(path)
+
+
+# ---------------------------------------------------------------- escritura
+def publicar(cuerpo: dict) -> dict:
+    return _post("/items", cuerpo)
+
+
+def actualizar_item(item_id: str, cuerpo: dict) -> dict:
+    return _put(f"/items/{item_id}", cuerpo)
+
+
+def poner_descripcion(item_id: str, texto_desc: str) -> dict:
+    return _post(f"/items/{item_id}/description", {"plain_text": texto_desc})
+
+
+def responder_pregunta(question_id: str, texto_resp: str) -> dict:
+    return _post("/answers", {"question_id": question_id, "text": texto_resp})
+
+
+def preguntar(item_id: str, texto_preg: str) -> dict:
+    """Le escribe al vendedor en SU publicacion. Asi se negocia en ML Chile.
+
+    ML rechaza preguntas con telefono, mail o links, y no deja preguntar en
+    tus propios items. El texto va limpio desde negociar_compra.py.
+    """
+    return _post("/questions", {"item_id": item_id, "text": texto_preg[:1990]})
+
+
+def pregunta(question_id: str) -> dict:
+    """Trae una pregunta y, si ya contestaron, su respuesta."""
+    return _get(f"/questions/{question_id}", {"api_version": 4})
+
+
+def subir_foto_url(url_foto: str) -> dict:
+    return _post("/pictures/items/upload", {"source": url_foto})
+
+
+def subir_foto_archivo(ruta: str) -> str:
+    """Sube una foto local (las que mandas por Telegram) y devuelve su id."""
+    with open(ruta, "rb") as f:
+        with httpx.Client(timeout=120.0) as c:
+            r = c.post(
+                f"{BASE}/pictures/items/upload",
+                headers={"Authorization": f"Bearer {token()}"},
+                files={"file": (ruta.split("/")[-1], f, "image/jpeg")},
+            )
+    r.raise_for_status()
+    return r.json()["id"]

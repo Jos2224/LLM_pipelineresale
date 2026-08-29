@@ -1,0 +1,79 @@
+"""Prueba del extractor determinista. No usa red ni LLM.
+
+  docker compose run --rm -e PYTHONPATH=/app -v ./bin:/app/bin:ro worker python /app/bin/test_extract.py
+
+Cada caso es un titulo real de MercadoLibre Chile con lo que TIENE que salir.
+Si un caso falla, el arreglo va en app/extract.py, no en el LLM.
+"""
+from app.extract import extraer
+
+# (titulo, marca, modelo, categoria, specs que deben estar)
+CASOS = [
+    ("NOTEBOOK LENOVO THINKPAD T480 i5 8VA 16GB SSD 256 !!OFERTA!!",
+     "Lenovo", "ThinkPad T480", "notebook", {"ram_gb": 16, "disco_gb": 256, "cpu": "I5"}),
+    ("Thinkpad T480 i5-8250U 16gb 512gb ssd impecable",
+     "Lenovo", "ThinkPad T480", "notebook", {"ram_gb": 16, "disco_gb": 512}),
+    ("Lenovo ThinkPad X1 Carbon Gen 9 i7 16GB 1TB",
+     "Lenovo", "ThinkPad X1 Carbon Gen 9", "notebook", {"ram_gb": 16, "disco_gb": 1024}),
+    ("Notebook Dell Latitude 7490 i5 8gb 256gb ssd usado",
+     "Dell", "Latitude 7490", "notebook", {"ram_gb": 8, "disco_gb": 256}),
+    ("HP EliteBook 840 G5 i5 8GB 256GB SSD reacondicionado",
+     "Hp", "EliteBook 840 G5", "notebook", {"ram_gb": 8, "disco_gb": 256}),
+    ("MacBook Pro 13 2015 i5 8gb 256 ssd",
+     "Apple", "MacBook Pro", "notebook", {"ram_gb": 8, "disco_gb": 256}),
+    ("iPhone 13 Pro Max 256gb liberado impecable",
+     "Apple", "iPhone 13 Pro Max", "celular", {"disco_gb": 256}),
+    ("Samsung Galaxy S21 Ultra 12gb 256gb",
+     "Samsung", "Galaxy S21 Ultra", "celular", {"ram_gb": 12, "disco_gb": 256}),
+    ("Monitor LG 24 pulgadas IPS full hd usado",
+     "Lg", None, "monitor", {"pulgadas": 24.0}),
+    ("Disco SSD Kingston 480GB sata nuevo sellado",
+     "Kingston", "SSD 480 GB", "componente", {"disco_gb": 480}),
+    ("Memoria RAM Kingston 8GB DDR4 sodimm notebook",
+     "Kingston", "RAM 8 GB DDR4", "componente", {"ram_gb": 8}),
+    ("Notebook Asus VivoBook X515 Ryzen 5 8GB 512GB SSD",
+     "Asus", "VivoBook X515", "notebook", {"ram_gb": 8, "disco_gb": 512}),
+    ("Cargador original Lenovo ThinkPad 65w usb-c",
+     "Lenovo", None, "accesorio", {}),
+    ("Notebook HP ProBook 440 G7 i5 16gb 512 ssd",
+     "Hp", "ProBook 440 G7", "notebook", {"ram_gb": 16, "disco_gb": 512}),
+    ("Xiaomi Redmi Note 12 Pro 8gb 256gb",
+     "Xiaomi", "Redmi Note 12 Pro", "celular", {"ram_gb": 8, "disco_gb": 256}),
+]
+
+
+def main():
+    ok = fallos = bajo = 0
+    problemas = []
+    for titulo, marca, modelo, cat, specs in CASOS:
+        d = extraer(titulo)
+        mal = []
+        if d["marca"] != marca:
+            mal.append(f"marca={d['marca']!r} esperado {marca!r}")
+        if modelo is not None and d["modelo"] != modelo:
+            mal.append(f"modelo={d['modelo']!r} esperado {modelo!r}")
+        if d["categoria"] != cat:
+            mal.append(f"categoria={d['categoria']!r} esperado {cat!r}")
+        for k, v in specs.items():
+            if d["specs"].get(k) != v:
+                mal.append(f"{k}={d['specs'].get(k)!r} esperado {v!r}")
+        if mal:
+            fallos += 1
+            problemas.append((titulo, mal, d))
+        else:
+            ok += 1
+        if d["confianza"] < 0.6:
+            bajo += 1
+
+    print(f"{ok}/{len(CASOS)} casos OK · {fallos} fallos · "
+          f"{bajo} con confianza baja (esos irian al 8B)")
+    for titulo, mal, d in problemas:
+        print(f"\n✖ {titulo}")
+        for m in mal:
+            print(f"    {m}")
+        print(f"    salio: {d}")
+    return fallos
+
+
+if __name__ == "__main__":
+    raise SystemExit(1 if main() else 0)

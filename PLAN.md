@@ -14,8 +14,11 @@ Todo corre en el servidor — 41 GB de RAM libres, 870 GB de disco, la P1000 con
 
 ## 1. LO QUE TIENES QUE HACER TU
 
-Todo lo demas esta construido y corriendo. Faltan **4 pasos**, y solo tu puedes darlos
-porque son cuentas tuyas. **Nada del sistema arranca hasta el paso 1.**
+> **Estado al 28-ago 22:30 — los 4 pasos estan HECHOS.**
+> Bots emparejados (chat <chat-id>) · Facebook con la cuenta <cuenta-fb>
+> aprobada · MercadoLibre conectado (cuenta <cuenta-ml>).
+> Lo que queda abajo es la referencia para cuando haya que rehacerlo: el token de
+> ML vence cada 6 meses y el bot avisa 7 dias antes.
 
 ### PASO 1 · Emparejar los bots — 30 segundos, hazlo ahora
 
@@ -81,12 +84,26 @@ El `state` se valida, asi que la URL sirve una sola vez.
 
 ### PASO 4 · Facebook — cuando quieras, es el ultimo
 
-Desde **nignig4**, terminal fish normal (no la sesion de Claude: necesita ventana grafica):
+**`ssh -X` NO funciona en el servidor** — falta `xorg-xauth` y el drop-in
+`10-server-hardening.conf` pone `X11Forwarding no`, que gana por ser el primero que
+OpenSSH encuentra. Arreglarlo pide root. El camino que si funciona no lo pide, y anda
+igual desde Windows, Mac o Linux: el navegador corre en el servidor y tu lo ves en TU
+navegador por un tunel.
+
+**Dos terminales:**
 
 ```fish
-ssh -X remato
+# Terminal 1, en el servidor
 ~/cazador/bin/login-fb.sh
+
+# Terminal 2, en TU PC
+ssh -L 6080:127.0.0.1:6080 remato
 ```
+
+Y en tu navegador: **http://127.0.0.1:6080/vnc.html** → boton *Connect*.
+
+> Si abres el tunel ANTES de que el contenedor exista, el puerto local escucha pero la
+> conexion rebota y parece "tunel cortado". Levanta primero, conecta despues.
 
 Se abre un Chrome en tu pantalla. Entras **con la cuenta desechable, NO la tuya**.
 El script te muestra con que cuenta quedaste y te pregunta. Si respondes cualquier cosa

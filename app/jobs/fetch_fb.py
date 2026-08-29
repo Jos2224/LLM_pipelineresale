@@ -32,9 +32,44 @@ def _hash(link: str) -> str:
     return hashlib.sha1(f"fb:{link}".encode()).hexdigest()
 
 
+# Una linea que es SOLO plata: "$150.000", "150.000", "$1.200.000".
+SOLO_PLATA = re.compile(r"^\s*\$?\s*[\d.,]+\s*$")
+# Facebook cierra la tarjeta con "Comuna, RM". Eso es donde esta el equipo, y
+# es lo que necesitas para mandar a alguien a buscarlo.
+COMUNA = re.compile(r"^(.{2,40}),\s*(RM|R\.M\.|Región.*|Metropolitana)$", re.I)
+
+
+def _lineas(txt: str) -> list[str]:
+    return [l.strip() for l in (txt or "").split("\n") if l.strip()]
+
+
 def _precio(txt: str) -> int | None:
-    d = re.sub(r"[^0-9]", "", (txt or "").split("\n")[0])
+    """La PRIMERA linea es el precio vigente.
+
+    Cuando el vendedor baja el precio, FB pone abajo el anterior tachado: la
+    tarjeta queda [150.000, 170.000, titulo, comuna]. El vigente es el primero,
+    asi que esto esta bien — lo que estaba mal era el titulo, que se llevaba
+    el precio viejo pegado adelante y de ahi "170.000" entraba a extract.py
+    como si fuera una spec.
+    """
+    ls = _lineas(txt)
+    if not ls:
+        return None
+    d = re.sub(r"[^0-9]", "", ls[0])
     return int(d) if d else None
+
+
+def _titulo_y_comuna(txt: str) -> tuple[str, str | None]:
+    """Titulo limpio y comuna. Descarta TODAS las lineas que son solo plata."""
+    utiles = [l for l in _lineas(txt) if not SOLO_PLATA.match(l)]
+    if not utiles:
+        return "", None
+    comuna = None
+    m = COMUNA.match(utiles[-1])
+    if m and len(utiles) > 1:
+        comuna = m.group(1).strip()
+        utiles = utiles[:-1]
+    return " ".join(utiles)[:400], comuna
 
 
 def correr() -> str:
@@ -79,6 +114,10 @@ def correr() -> str:
                 txt = a.inner_text()
                 if not href or not txt:
                     continue
+                titulo, comuna = _titulo_y_comuna(txt)
+                precio = _precio(txt)
+                if not titulo:
+                    continue
                 # xmax = 0 distingue insert de update; el rowcount no.
                 fila = q1(
                     """INSERT INTO item_raw (fuente, url, id_externo, titulo, precio, crudo, hash)
@@ -86,8 +125,8 @@ def correr() -> str:
                        ON CONFLICT (hash) DO UPDATE SET visto_en = now()
                        RETURNING (xmax = 0) AS nuevo""",
                     (fid, f"https://www.facebook.com{href}", href,
-                     " ".join(txt.split("\n")[1:3])[:400], _precio(txt),
-                     json.dumps({"fuente": "fb"}), _hash(href)),
+                     titulo, precio,
+                     json.dumps({"fuente": "fb", "comuna": comuna}), _hash(href)),
                 )
                 nuevos += 1 if fila and fila["nuevo"] else 0
 

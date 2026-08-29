@@ -1,0 +1,15 @@
+# Lo que NO entra al contexto del build.
+#
+# data/ es el mas importante y por dos razones:
+#   1. no hace falta: se monta como volumen en tiempo de ejecucion
+#   2. desde que existe el perfil de Facebook tiene archivos de root, y el
+#      build no los puede leer -> "checking context: no permission to read
+#      from .../BrowserMetrics-spare.pma" y la construccion muere entera
+#      (paso el 28-ago, despues del primer login de FB)
+data/
+
+.env
+.git/
+__pycache__/
+*.pyc
+*.pyo

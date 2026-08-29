@@ -1,0 +1,41 @@
+# Navegador visible SIN X11 forwarding y SIN root.
+#
+# Por que existe: `ssh -X` no funciona en el servidor — falta `xauth` y el drop-in
+# 10-server-hardening.conf pone X11Forwarding no, que gana por ser el primero.
+# Arreglar eso pide root. Esto no.
+#
+# Como funciona: adentro del contenedor corre una pantalla de mentira (Xvfb),
+# un servidor VNC que la transmite (x11vnc), y noVNC que convierte ese VNC en
+# una pagina web. Tu abres esa pagina en TU navegador por un tunel SSH y ves
+# el Chrome del servidor como si estuviera en tu escritorio.
+#
+# Ventaja sobre X11: funciona desde Windows y Mac sin instalar un servidor X,
+# aguanta que se corte la conexion (la sesion sigue viva adentro), y no expone
+# nada: noVNC escucha solo en 127.0.0.1 del servidor.
+#
+#   docker compose --profile vnc build navegador
+FROM mcr.microsoft.com/playwright/python:v1.49.0-noble
+
+ENV PYTHONUNBUFFERED=1 TZ=America/Santiago DISPLAY=:99
+WORKDIR /app
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      xvfb x11vnc novnc websockify openbox \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY requirements.txt .
+# --ignore-installed: la imagen base trae typing_extensions puesto por Debian,
+# sin RECORD file, y pip no lo puede desinstalar. Sin esta bandera la
+# construccion muere ahi (pasó el 28-ago).
+RUN pip install --no-cache-dir --ignore-installed typing_extensions \
+      -r requirements.txt playwright==1.49.0
+
+COPY app ./app
+COPY db ./db
+COPY bin ./bin
+
+# El script de arranque va como archivo: el heredoc pide BuildKit y aca no hay.
+RUN chmod +x /app/bin/arranque-vnc.sh
+
+ENTRYPOINT ["/app/bin/arranque-vnc.sh"]
+CMD ["python", "/app/bin/abrir_fb.py"]

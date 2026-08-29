@@ -38,6 +38,11 @@ publicar:
   boton_siguiente: Siguiente
   boton_publicar: Publicar
 
+item:
+  # La pagina de una publicacion de otro vendedor. De aca sale el boton para
+  # abrirle el chat cuando el bot va a regatear la compra.
+  boton_mensaje: 'div[aria-label="Enviar mensaje"], div[aria-label="Message"], span:has-text("Enviar mensaje")'
+
 buscar:
   url: https://www.facebook.com/marketplace/santiago/search?query={}&sortBy=creation_time_descend
   resultado: 'a[href*="/marketplace/item/"]'

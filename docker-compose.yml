@@ -129,6 +129,64 @@ services:
   # Navegador. No arranca solo: es un servicio que se invoca a demanda.
   #   docker compose --profile scraper build
   #   docker compose --profile scraper run --rm scraper python -m app.jobs.fetch_aduanas
+  # El reloj de Facebook. Corre EN PARALELO con `worker`, que hace todo lo de
+  # MercadoLibre. Son dos porque los jobs de FB necesitan un Chrome de verdad
+  # y esa imagen pesa 4 GB: meterla en el worker liviano haria que cada cambio
+  # de codigo reconstruya 4 GB.
+  #
+  # Antes los jobs de FB estaban en el worker liviano y morian con "falta
+  # playwright" en cada ciclo, sin ruido. Parecia que cazaba en los dos lados
+  # y cazaba solo en ML.
+  worker-fb:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc
+    container_name: cazador-worker-fb
+    restart: unless-stopped
+    network_mode: host
+    entrypoint: ["python"]
+    command: ["-m", "app.worker.fb"]
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@127.0.0.1:5434/cazador
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OLLAMA_URL: http://127.0.0.1:11434
+    shm_size: "1gb"          # Chrome se cae con los 64 MB por defecto
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+
+  # Navegador que TU ves, sin X11 y sin root. Corre una pantalla virtual y la
+  # sirve como pagina web en 127.0.0.1:6080. Tu la abres por un tunel SSH:
+  #   ssh -L 6080:127.0.0.1:6080 remato
+  #   http://127.0.0.1:6080/vnc.html
+  # Escucha SOLO en loopback: nadie llega desde fuera del servidor.
+  navegador:
+    build:
+      context: .
+      dockerfile: Dockerfile.vnc
+    profiles: ["vnc"]
+    # Red de host, igual que worker y bots. Sin esto el contenedor esta en la
+    # red bridge y su 127.0.0.1 es EL MISMO, no el servidor: postgres (5434),
+    # redis (6380) y Ollama (11434) escuchan solo en el loopback del host, asi
+    # que no los alcanza. Fallaba con PoolTimeout a los 30 s (28-ago).
+    # Con red de host tampoco hace falta publicar el 6080: ya es el del host.
+    # Por eso x11vnc y websockify se atan a 127.0.0.1 en bin/arranque-vnc.sh —
+    # si no, quedarian abiertos a la LAN y al tailnet.
+    network_mode: host
+    env_file: .env
+    environment:
+      PG_DSN: postgresql://cazador:${PG_PASSWORD}@127.0.0.1:5434/cazador
+      REDIS_URL: redis://127.0.0.1:6380/0
+      OLLAMA_URL: http://127.0.0.1:11434
+    shm_size: "1gb"          # Chrome se cae con los 64 MB por defecto
+    volumes:
+      - ./config:/app/config:ro
+      - ./data:/app/data
+
   scraper:
     build:
       context: .

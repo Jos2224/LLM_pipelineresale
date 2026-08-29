@@ -135,6 +135,13 @@ facebook:
   respuestas_dia: 20      # tope duro de mensajes enviados por dia
   pausa_resp_seg: [45, 150]  # espera entre respuesta y respuesta
   burbujas_leer: 12       # cuantos mensajes del hilo lee para el contexto
+  # --- regatear la COMPRA por Messenger (script 34) ---
+  # Mas conservador que ML a proposito: Messenger saliente es lo que FB mira
+  # con mas lupa. La escalera de precios es la misma y el techo es el mismo;
+  # lo que cambia es cada cuanto se mueve.
+  negociar_por_dia: 5      # conversaciones NUEVAS al dia (ML permite 12)
+  negociar_pausa_min: 15   # minutos antes de volver a mirar un hilo
+
   parecido_minimo: 0.5    # cuanto tiene que parecerse el titulo del hilo al
                           # de tu publicacion para darla por identificada.
                           # Bajo eso NO adivina: te pregunta a ti.
@@ -143,5 +150,5 @@ modo:
   # Interruptores de seguridad. Todo arranca apagado o en borrador.
   publicar_auto: false      # false = todo queda en borrador esperando boton
   negociar_auto: false      # false = escala todo a Telegram
-  fb_activo: false          # ultimo en encenderse, riesgo de ban
+  fb_activo: true           # ENCENDIDO 28-ago con la cuenta <cuenta-fb>
   borradores_de_prueba: 20  # las primeras N publicaciones piden boton si o si

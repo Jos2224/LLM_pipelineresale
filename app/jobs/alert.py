@@ -59,6 +59,11 @@ def _texto(o: dict) -> str:
     if origen:
         marca = "📊" if origen.startswith("estante") else "≈"
         lineas += ["", f"{marca} mercado: {_plata(crudo.get('p50_usado'))} · {origen}"]
+    # Donde esta el equipo. En Facebook sale en la tarjeta; en ML el vendedor
+    # no da direccion antes de la compra, pero la comuna si es publica.
+    # Es lo que tu asistente necesita para ir a buscarlo.
+    if crudo.get("comuna"):
+        lineas.append(f"📍 {crudo['comuna']}")
     if not o["g_conocido"]:
         lineas += ["", "⚠️ <b>G=?</b> — no se cuanta gente compite. Numero estimado, no confirmado."]
     if o.get("url"):

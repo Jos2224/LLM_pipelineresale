@@ -23,8 +23,9 @@ Ritmo:
   trends          diario 23:30
   backtest        lunes 08:00
   report          domingo 20:00
-  fetch_fb         1 h    (apagado por defecto)
-  reply_fb        15 min  contestar en Facebook Marketplace (apagado por defecto)
+
+Todo lo de Facebook vive en app/worker/fb.py y corre en paralelo, en la imagen
+que trae Chrome. Aca no cabe: esta imagen no tiene navegador.
 """
 from __future__ import annotations
 
@@ -39,9 +40,9 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from app.config import BASE_PUBLICA, aduanas, p
 from app.jobs import envuelto
-from app.jobs import (alert, backtest, escalate, fetch_aduanas, fetch_fb, fetch_ml,
-                      gen_listing, inventory_sync, negociar_compra, negotiate, normalize,
-                      poll_ml, price_index, publish_fb, publish_ml, reply_bot, reply_fb,
+from app.jobs import (alert, backtest, escalate, fetch_aduanas, fetch_ml,
+                      gen_listing, inventory_sync, negociar_compra, negotiate,
+                      normalize, poll_ml, price_index, publish_ml, reply_bot,
                       report, reprice, score, sync_stock, trends, webhook_ml)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
@@ -107,13 +108,12 @@ def main() -> None:
     diario("0 8 * * 1", "backtest", backtest)
     diario("0 20 * * 0", "report", report)
 
-    # --- facebook: ultimo y opcional ----------------------------------
-    if p("modo.fb_activo", False):
-        cada(3600, "fetch_fb", fetch_fb)
-        cada(4 * 3600, "publish_fb", publish_fb)
-        # Contestar es lo que mas urge de FB: un comprador que no recibe
-        # respuesta en 15 min se va al siguiente vendedor.
-        cada(15 * 60, "reply_fb", reply_fb)
+    # --- facebook: NO va aca ------------------------------------------
+    # Los jobs de FB manejan un navegador de verdad y esta imagen no lo trae.
+    # Estuvieron agendados aca y morian con "falta playwright" en cada ciclo,
+    # en silencio: parecia que cazaba en los dos lados y cazaba solo en ML.
+    # Ahora viven en app/worker/fb.py, que corre en la imagen con Chrome y en
+    # PARALELO con este reloj. Ver el servicio worker-fb.
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: s.shutdown(wait=False))

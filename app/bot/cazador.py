@@ -46,7 +46,14 @@ def _plata(n) -> str:
 # ------------------------------------------------------------- comandos
 def cmd_start(chat: str, arg: str) -> None:
     if TG_PASS and arg.strip() != TG_PASS:
-        B.enviar("palabra incorrecta", chat=chat)
+        # Antes decia solo "palabra incorrecta" y no explicaba nada: mandar
+        # /start pelado devolvia eso y quedabas sin saber que faltaba.
+        B.enviar(
+            "Falta la palabra secreta.\n\n"
+            "Mandame:  <code>/start LA_PALABRA</code>\n\n"
+            "La palabra es el valor de <code>TG_PASS</code>. Para verla, en el "
+            "servidor:\n<code>grep TG_PASS ~/cazador/.env</code>",
+            chat=chat)
         return
     B.emparejar(chat)
     B.enviar("Emparejado ✅ Este chat recibe las ofertas.\n\n" + AYUDA, chat=chat)

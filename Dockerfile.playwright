@@ -9,7 +9,11 @@ ENV PYTHONUNBUFFERED=1 TZ=America/Santiago
 WORKDIR /app
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt playwright==1.49.0
+# --ignore-installed: la imagen base trae typing_extensions puesto por Debian,
+# sin RECORD file, y pip no lo puede desinstalar. Sin esta bandera la
+# construccion muere ahi (pasó el 28-ago).
+RUN pip install --no-cache-dir --ignore-installed typing_extensions \
+      -r requirements.txt playwright==1.49.0
 
 COPY app ./app
 COPY db ./db

@@ -115,6 +115,15 @@ compra_negociacion:
   # Cuanto sube el bot entre ronda y ronda, del objetivo hacia el techo.
   # 0.5 = a mitad de camino. Nunca llega al techo en la ronda 1.
   paso_hacia_techo: 0.5
+  # Muestras que necesita el indice del producto para que el bot ABRA la
+  # negociacion solo, sin que aprietes el boton.
+  #
+  # Cuando una persona apretaba el boton, miraba la alerta y filtraba sola las
+  # que olian raro. Sin persona, este numero es ese filtro: un multiplo sale de
+  # un P50, y un P50 sacado de 2 muestras no es un precio de mercado, es una
+  # casualidad. El 29-ago hubo dos indices envenenados en un mismo dia.
+  # Lo que no llega a este piso igual te llega como alerta con boton.
+  min_muestras_auto: 5
 
 ritmo:
   # Items que el juez mira por vuelta. Un item juzgado que NO resulta
@@ -172,5 +181,16 @@ modo:
   # Interruptores de seguridad. Todo arranca apagado o en borrador.
   publicar_auto: false      # false = todo queda en borrador esperando boton
   negociar_auto: false      # false = escala todo a Telegram
+  # ¿El bot ABRE la negociacion solo, o espera que aprietes [Negociar]?
+  #
+  # Encendido el 29-ago. Hasta ese dia el unico camino a la tabla `negociacion`
+  # era el boton, asi que el sistema llegaba hasta "te aviso" y el cierre lo
+  # hacia una persona. Con esto en true, una oportunidad cuyo indice tenga
+  # suficientes muestras (compra_negociacion.min_muestras_auto) arranca sola.
+  #
+  # Lo que NO cambia: la escalera de precios, el techo, los topes por dia
+  # (12 en ML, 5 en Facebook), la pausa entre mensajes y los candados de cuenta.
+  # Esto decide cuando EMPIEZA, no cuanto se ofrece.
+  negociar_auto_inicio: true
   fb_activo: true           # ENCENDIDO 28-ago con la cuenta <cuenta-fb>
   borradores_de_prueba: 20  # las primeras N publicaciones piden boton si o si

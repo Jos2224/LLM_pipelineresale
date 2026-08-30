@@ -17,7 +17,7 @@ import time
 import redis
 import yaml
 
-from app import tg
+from app import negociacion, tg
 from app.config import CONFIG, REDIS_URL, TG_PASS
 from app.db import ex, kv_get, kv_set, q, q1
 
@@ -223,28 +223,19 @@ def cmd_sugerencias(chat: str) -> None:
 
 # ------------------------------------------------------------- botones
 def _abrir_negociacion(op_id: str) -> str:
-    o = q1(
-        """SELECT o.id, o.p_max, o.objetivo, i.precio, i.id_externo, f.tipo
-           FROM oportunidad o JOIN item_raw i ON i.id=o.item_raw
-           JOIN fuente f ON f.id=i.fuente WHERE o.id=%s""",
-        (op_id,),
-    )
-    if not o:
-        return "no la encuentro"
-    if o["tipo"] != "ml" or not o["id_externo"]:
-        return "solo negocio en MercadoLibre por ahora"
-    # Sin techo ni objetivo la escalera de ofertas no tiene de donde agarrarse
-    # y reventaria a mitad de la negociacion, con el vendedor esperando.
-    if not o["p_max"] or not o["objetivo"]:
-        return "sin techo calculado todavia, espera el proximo indice de precios"
-    ex(
-        """INSERT INTO negociacion (oportunidad, item_externo, precio_pedido,
-                                    precio_objetivo, precio_techo)
-           VALUES (%s,%s,%s,%s,%s) ON CONFLICT (oportunidad) DO NOTHING""",
-        (o["id"], o["id_externo"], o["precio"], o["objetivo"], o["p_max"]),
-    )
-    ex("UPDATE oportunidad SET estado='negociando' WHERE id=%s", (op_id,))
-    return "el bot saluda al vendedor en unos minutos"
+    """El boton [Negociar]. La logica vive en `app/negociacion.py`.
+
+    Estuvo aca adentro hasta el 29-ago y eso era el cuello de botella de todo
+    el sistema: con `if tipo != "ml": return "solo negocio en MercadoLibre"`,
+    y siendo esta la UNICA puerta a la tabla `negociacion`, el boton rechazaba
+    el 100% de las oportunidades — todas vienen de Facebook desde que ML cerro
+    su busqueda. `jobs/negociar_fb.py` corria cada 20 min leyendo una tabla que
+    nadie podia llenar.
+    """
+    try:
+        return negociacion.abrir(op_id)
+    except negociacion.NoSePudo as e:
+        return str(e)
 
 
 def boton(cb: dict) -> None:

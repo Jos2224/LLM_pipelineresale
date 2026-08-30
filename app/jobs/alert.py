@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import redis
 
-from app import tg
+from app import negociacion, tg
 from app.config import REDIS_URL, p
 from app.db import ex, q
 from app.jobs import envuelto
@@ -77,8 +77,16 @@ def correr() -> str:
     if R.get("cazador:alertas_pausadas"):
         return "alertas en pausa (/pausa)"
 
+    # Arranque automatico de la negociacion. Sin esto el sistema llega hasta
+    # "te aviso" y el cierre lo hace una persona apretando un boton — que era
+    # exactamente el techo del sistema hasta el 29-ago.
+    auto = bool(p("modo.negociar_auto_inicio", False))
+    min_muestras = int(p("compra_negociacion.min_muestras_auto", 5))
+    abiertas = 0
+
     pend = q(
         """SELECT o.id, o.v_liq, o.p_max, o.objetivo, o.multiplo, o.g_conocido,
+                  o.producto,
                   i.titulo, i.precio, i.url, i.fotos, i.crudo
            FROM oportunidad o JOIN item_raw i ON i.id = o.item_raw
            WHERE o.estado = 'nueva'
@@ -86,17 +94,43 @@ def correr() -> str:
         (MAX_POR_CICLO,),
     )
     for o in pend:
+        # En automatico se intenta abrir ANTES de mandar el aviso, para que el
+        # mensaje diga lo que de verdad va a pasar en vez de ofrecerte un boton
+        # que ya no hace falta.
+        abierta = ""
+        if auto:
+            ok, por_que = negociacion.confiable(o["producto"], min_muestras)
+            if ok:
+                try:
+                    negociacion.abrir(o["id"])
+                    abiertas += 1
+                    abierta = f"\n\n🤝 <b>Negociando sola</b> ({por_que} en el indice)"
+                except negociacion.NoSePudo as e:
+                    abierta = f"\n\n<i>no pude abrirla sola: {e}</i>"
+            else:
+                # No se calla: si el freno de calidad la para, el boton sigue
+                # ahi y tu decides. Callarlo seria volver al problema de antes,
+                # donde una oportunidad se perdia sin que nadie supiera por que.
+                abierta = f"\n\n<i>no la negocio sola: {por_que}</i>"
+
         botones = tg.teclado([
             [("🤝 Negociar", f"op_negociar:{o['id']}")],
             [("✖ Ignorar", f"op_ignorar:{o['id']}"), ("👁 Seguir", f"op_watch:{o['id']}")],
         ])
         fotos = o["fotos"] or []
+        texto = _texto(dict(o)) + abierta
         if fotos:
-            tg.CAZADOR.foto(fotos[0], _texto(dict(o)), botones)
+            tg.CAZADOR.foto(fotos[0], texto, botones)
         else:
-            tg.CAZADOR.enviar(_texto(dict(o)), botones)
-        ex("UPDATE oportunidad SET estado = 'avisada' WHERE id = %s", (o["id"],))
-    return f"{len(pend)} alertas enviadas"
+            tg.CAZADOR.enviar(texto, botones)
+        # Si ya quedo negociando, ese estado manda: no se pisa con 'avisada'.
+        ex("UPDATE oportunidad SET estado = 'avisada' "
+           "WHERE id = %s AND estado = 'nueva'", (o["id"],))
+
+    salida = f"{len(pend)} alertas enviadas"
+    if auto:
+        salida += f", {abiertas} negociaciones abiertas solas"
+    return salida
 
 
 if __name__ == "__main__":

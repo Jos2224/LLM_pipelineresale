@@ -10,7 +10,7 @@ case "${1:-ayuda}" in
   estado)   docker compose ps ;;
   psql)     docker exec -it cazador-postgres psql -U cazador -d cazador ;;
   job)      docker compose run --rm worker python -m "app.jobs.${2:?falta el nombre del job}" ;;
-  test)     for t in test_extract test_parseo test_fb test_specs test_vision; do
+  test)     for t in test_extract test_parseo test_fb test_specs test_negociacion test_vision; do
               echo "== $t"
               docker compose run --rm -e PYTHONPATH=/app -v ./bin:/app/bin:ro \
                 worker python "/app/bin/$t.py" 2>&1 | grep -v Container

@@ -86,9 +86,15 @@ CATEGORIA_PALABRA = [
     (r"\b(ssd|disco|hdd|nvme|m\.?2)\b", "componente"),
     (r"\b(ram|memoria|sodimm|dimm|ddr[345])\b", "componente"),
     (r"\b(placa\s*madre|motherboard|tarjeta\s*de\s*video|gpu|procesador)\b", "componente"),
-    (r"\b(cargador|funda|teclado|mouse|cable|adaptador|dock)\b", "accesorio"),
+    (r"\b(cargador|funda|teclado|mouse|cable|adaptador|dock|bater[ií]a|pila|"
+     r"malet[ií]n|carcasa|bisagra|soporte|repuesto)\b", "accesorio"),
     (r"\b(all\s*in\s*one|computador|pc\s*escritorio|torre)\b", "computador"),
 ]
+
+# El sustantivo que dice QUE accesorio es. Se le pega adelante al modelo para
+# que no comparta estante con la maquina a la que le sirve — ver `extraer()`.
+ACCESORIO_TIPO = (r"\b(cargador|funda|bater[ií]a|pila|malet[ií]n|carcasa|"
+                  r"bisagra|soporte|teclado|mouse|cable|adaptador|dock)\b")
 
 # Categorias que son una MAQUINA COMPLETA. Ninguna se identifica por la pieza
 # que lleva adentro: un notebook con RTX 3050 es un notebook, no una RTX 3050.
@@ -301,6 +307,20 @@ def _pieza(t: str):
     return None
 
 
+def _es_linea_de_maquina(modelo: str) -> bool:
+    """El modelo empieza con el nombre de una linea de EQUIPOS.
+
+    Sirve para distinguir "Cargador para ThinkPad T480" (el modelo nombra una
+    maquina: hay que separarlo del estante del notebook) de "Redragon Kumara"
+    (nombre propio del teclado: se deja tal cual).
+    """
+    primera = (modelo or "").lower().split()
+    if not primera:
+        return False
+    linea = LINEAS.get(primera[0])
+    return bool(linea and linea[1] in EQUIPO_ENTERO)
+
+
 def _categoria(t: str, por_linea: str | None, pos_linea: int) -> str:
     """Gana la palabra que aparece PRIMERO en el titulo.
 
@@ -494,6 +514,32 @@ def extraer(titulo: str) -> dict:
             tipo = "SSD" if re.search(r"\b(ssd|nvme)\b", t) else "Disco"
             modelo = f"{tipo} {specs['disco_gb']} GB"
             confianza = 0.7
+
+    # ---------------------------------------------------------------------
+    # UN ACCESORIO NO ES LA MAQUINA A LA QUE LE SIRVE.
+    #
+    # El espejo del bug de la RTX, y sale mas caro porque los accesorios son
+    # muchos y baratos. Medido el 29-ago:
+    #
+    #   "Cargador original Lenovo ThinkPad T480 65W"  ->  Lenovo / ThinkPad T480
+    #   "Funda para MacBook Pro 2015 13 pulgadas"     ->  Apple  / MacBook Pro 2015
+    #
+    # Un cargador de 20.000 entrando al estante del T480 **baja el P50 del
+    # notebook**. Y un P50 bajo no da alertas falsas: da lo contrario, que es
+    # peor porque no se nota — deja de avisarte de gangas de verdad, y una
+    # oportunidad que nunca llego no se puede echar de menos.
+    #
+    # Se le pega el tipo adelante en vez de borrar el nombre de la maquina: un
+    # "Cargador ThinkPad T480" tiene su propio estante y ADEMAS conserva para
+    # que equipo sirve, que es justo lo que hace que se venda.
+    # Solo cuando el modelo nombra una MAQUINA. Un "Redragon Kumara" es el
+    # nombre propio del teclado, no de un equipo al que le sirva: ese no se
+    # toca, y renombrarlo solo ensuciaria un estante que ya estaba bien.
+    if categoria == "accesorio" and modelo and _es_linea_de_maquina(modelo):
+        tp = re.search(ACCESORIO_TIPO, t)
+        tipo = tp.group(1).title() if tp else None
+        if tipo and not modelo.lower().startswith(tipo.lower()):
+            modelo = f"{tipo} {modelo}"
 
     if marca and modelo and specs:
         confianza = min(1.0, confianza + 0.05)

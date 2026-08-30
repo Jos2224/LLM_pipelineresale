@@ -45,6 +45,27 @@ CASOS = [
      "Generico", "Notebook i7 + RTX 3050", "notebook", {}),
     # Y la tarjeta SUELTA tiene que seguir siendo la tarjeta.
     ("rtx 3050 6gb", "Nvidia", "RTX 3050", "componente", {}),
+    # La direccion CONTRARIA, que es el riesgo de la regla nueva: una pieza que
+    # MENCIONA un notebook sigue siendo pieza. Manda la palabra que va primero,
+    # porque en castellano el aviso empieza por lo que se vende.
+    # La marca queda en "Dell" (es la marca del equipo al que le sirve, no de
+    # la RAM). No hace daño: parte el estante de las RAM por marca de notebook,
+    # y todas las RAM 8GB DDR4 valen mas o menos lo mismo. Lo que importaba era
+    # que NO quedara como notebook Dell, y no queda.
+    ("Memoria RAM 8GB DDR4 sodimm para notebook Dell",
+     "Dell", "RAM 8 GB DDR4", "componente", {"ram_gb": 8}),
+    # UN ACCESORIO NO ES LA MAQUINA. El cargador conserva para que sirve, pero
+    # con el tipo adelante para tener estante propio: sin eso un cargador de
+    # 20.000 entraba al estante del T480 y le bajaba el P50 al notebook — y un
+    # P50 bajo no da alertas falsas, deja de darte las verdaderas.
+    ("Cargador original Lenovo ThinkPad T480 65W",
+     "Lenovo", "Cargador ThinkPad T480", "accesorio", {}),
+    ("Funda para MacBook Pro 2015 13 pulgadas",
+     "Apple", "Funda MacBook Pro 2015", "accesorio", {}),
+    # "Bateria" no estaba en ninguna lista: ganaba la palabra "notebook" y una
+    # bateria de 25.000 quedaba clasificada como NOTEBOOK.
+    ("Bateria para notebook HP EliteBook 840 G5",
+     "Hp", "Bateria EliteBook 840 G5", "accesorio", {}),
     ("NOTEBOOK LENOVO THINKPAD T480 i5 8VA 16GB SSD 256 !!OFERTA!!",
      "Lenovo", "ThinkPad T480", "notebook", {"ram_gb": 16, "disco_gb": 256, "cpu": "I5"}),
     ("Thinkpad T480 i5-8250U 16gb 512gb ssd impecable",

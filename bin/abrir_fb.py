@@ -24,7 +24,12 @@ from playwright.sync_api import sync_playwright
 
 PERFIL = "/app/data/perfiles/facebook"
 FICHA = Path(PERFIL) / "cuenta.json"
-ESPERA_MAX_SEG = 1200   # 20 min: FB suele pedir codigo por mail o SMS
+# 35 min. Eran 20 y quedaba justo: Facebook manda un codigo por mail o SMS, a
+# veces pide una segunda confirmacion desde otro dispositivo, y si el reloj se
+# acaba a mitad se pierde TODO el intento — hay que levantar el contenedor de
+# nuevo, reabrir el tunel y volver a entrar. Esperar de mas no cuesta nada:
+# apenas aparece la cookie el script sigue solo.
+ESPERA_MAX_SEG = 2100
 
 
 def main() -> int:
@@ -54,7 +59,10 @@ def main() -> int:
             if uid:
                 break
             if i and i % 60 == 0:
-                print(f"  esperando... ({i // 60} min)")
+                # Cuenta hacia abajo, no hacia arriba: lo que necesitas saber
+                # mirando la terminal es cuanto te queda, no cuanto llevas.
+                print(f"  esperando que entres... quedan {(ESPERA_MAX_SEG - i) // 60} min",
+                      flush=True)
             pag.wait_for_timeout(1000)
 
         nombre = "(no se pudo leer el nombre)"

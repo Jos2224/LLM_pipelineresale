@@ -193,4 +193,25 @@ modo:
   # Esto decide cuando EMPIEZA, no cuanto se ofrece.
   negociar_auto_inicio: true
   fb_activo: true           # ENCENDIDO 28-ago con la cuenta <cuenta-fb>
+  # MercadoLibre entero. APAGADO el 29-ago.
+  #
+  # Dos razones. La primera es que ML cerro su busqueda publica (403
+  # PolicyAgent), asi que ya no sirve para cazar. La segunda es que la app no
+  # tiene `offline_access`, asi que el token se muere a las 6 horas y no se
+  # puede renovar: los nueve jobs de ML corrian solo para escribir "sin login
+  # de ML todavia" cada pocos minutos, tapando lo que si estaba pasando.
+  #
+  # Un job que no puede funcionar no debe estar agendado. Agendado y fallando
+  # se parece demasiado a agendado y andando — que es el error que se repitio
+  # todo el 29-ago.
+  #
+  # Lo que se pierde mientras esta apagado: `ventas_ml`, que trae lo que la
+  # gente PAGO de verdad (peso 3 en el indice, el mejor dato que hay).
+  #
+  # Para volver a encenderlo:
+  #   1. developers.mercadolibre.cl -> app -> Scopes -> marcar offline_access
+  #   2. aca: ml_activo: true
+  #   3. en el bot: /conectar  y  /codigo <URL completa>
+  #   4. ~/cazador/bin/cazador arriba
+  ml_activo: false
   borradores_de_prueba: 20  # las primeras N publicaciones piden boton si o si

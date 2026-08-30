@@ -69,6 +69,12 @@ def _linea_ml() -> str:
     """
     from datetime import datetime, timezone
 
+    from app.config import p
+
+    if not p("modo.ml_activo", True):
+        return ("MercadoLibre: <b>apagado</b> (policy.yml → modo.ml_activo).\n"
+                "  Cazando y negociando solo por Facebook.")
+
     ml = q1("SELECT ml_user_id, refresh_token, expira_en FROM oauth_ml WHERE id=1")
     if not ml or not ml["ml_user_id"]:
         return "ML conectado: NO — manda /conectar"

@@ -75,37 +75,56 @@ def main() -> None:
     def diario(cron: str, nombre: str, modulo):
         s.add_job(tarea(nombre, modulo), CronTrigger.from_crontab(cron), id=nombre)
 
+    # MercadoLibre entero, encendido o apagado de una vez (modo.ml_activo).
+    #
+    # Apagado el 29-ago. Con la app sin `offline_access` el token se muere a las
+    # 6 horas y no se puede renovar, asi que los nueve jobs de ML corrian solo
+    # para escribir "sin login de ML todavia" en el registro, cada pocos
+    # minutos, tapando lo que si estaba pasando. Un job que no puede funcionar
+    # no debe estar agendado: agendado y fallando se parece demasiado a
+    # agendado y andando.
+    #
+    # Para volver a encenderlo: marcar offline_access en la app de ML,
+    # `modo.ml_activo: true` aca abajo, /conectar en el bot y `cazador arriba`.
+    ml = bool(p("modo.ml_activo", True))
+
     # --- bloque 1: detectar (riesgo cero) -----------------------------
-    cada(30 * 60, "fetch_ml", fetch_ml)
+    if ml:
+        cada(30 * 60, "fetch_ml", fetch_ml)
+        cada(3 * 60, "negociar_compra", negociar_compra)   # saluda, regatea, cierra
     cada(2 * 60, "normalize", normalize)
     cada(3 * 60, "score", score)
     cada(2 * 60, "alert", alert)
     cada(6 * 3600, "price_index", price_index)
-    cada(3 * 60, "negociar_compra", negociar_compra)   # saluda, regatea, cierra
 
     cfg_ad = aduanas()
     if cfg_ad.get("activo"):
         cada(int(cfg_ad.get("ritmo", {}).get("cada_min", 15)) * 60, "fetch_aduanas", fetch_aduanas)
 
     # --- bloque 2: publicar -------------------------------------------
-    cada(12 * 3600, "inventory_sync", inventory_sync)
-    # Tus ventas cerradas: el mejor precio que hay. ML cerro la busqueda
-    # publica (403 PolicyAgent), asi que esta es la unica fuente de ML que
-    # queda para el indice — y es mejor que la que se perdio, porque dice lo
-    # que la gente PAGO y no lo que pedia.
-    cada(2 * 3600, "ventas_ml", ventas_ml)
-    cada(3600, "gen_listing", gen_listing)
-    cada(15 * 60, "publish_ml", publish_ml)
-    cada(5 * 60, "sync_stock", sync_stock)
-    diario("0 9 * * *", "reprice", reprice)
+    cada(3600, "gen_listing", gen_listing)   # el texto sirve para ML y para FB
+    if ml:
+        cada(12 * 3600, "inventory_sync", inventory_sync)
+        # Tus ventas cerradas: el mejor precio que hay. ML cerro la busqueda
+        # publica (403 PolicyAgent), asi que esta es la unica fuente de ML que
+        # queda para el indice — y es mejor que la que se perdio, porque dice
+        # lo que la gente PAGO y no lo que pedia. Es lo que mas se echa de
+        # menos con ML apagado.
+        cada(2 * 3600, "ventas_ml", ventas_ml)
+        cada(15 * 60, "publish_ml", publish_ml)
+        cada(5 * 60, "sync_stock", sync_stock)
+        diario("0 9 * * *", "reprice", reprice)
 
     # --- bloque 3: negociar -------------------------------------------
-    # Con endpoint publico: webhook (instantaneo). Sin el: consulta cada 5 min.
-    if BASE_PUBLICA:
-        cada(30, "webhook_ml", webhook_ml)
-    else:
-        cada(5 * 60, "poll_ml", poll_ml)
-    cada(10 * 60, "reply_bot", reply_bot)
+    if ml:
+        # Con endpoint publico: webhook (instantaneo). Sin el: cada 5 min.
+        if BASE_PUBLICA:
+            cada(30, "webhook_ml", webhook_ml)
+        else:
+            cada(5 * 60, "poll_ml", poll_ml)
+        cada(10 * 60, "reply_bot", reply_bot)
+    # Estos dos no son de ningun canal: leen la tabla `mensaje`, que llenan
+    # tanto reply_bot (ML) como reply_fb (Messenger).
     cada(5 * 60, "negotiate", negotiate)
     cada(3600, "escalate", escalate)
 
@@ -124,7 +143,8 @@ def main() -> None:
     for sig in (signal.SIGTERM, signal.SIGINT):
         signal.signal(sig, lambda *_: s.shutdown(wait=False))
 
-    log.info("worker arriba con %d tareas", len(s.get_jobs()))
+    log.info("worker arriba con %d tareas · MercadoLibre %s",
+             len(s.get_jobs()), "ON" if ml else "OFF (modo.ml_activo)")
     s.start()
 
 

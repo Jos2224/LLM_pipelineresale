@@ -767,6 +767,71 @@ repetir que tragarse un problema.
 - Los 75 items gringos borrados; los 452 chilenos intactos ✓
 - El indice de precios no habia sido tocado por ellos (0 de 75 tenian precio) ✓
 
+## 5h. 29-ago: por que no habia NI UNA compra cerrada
+
+La tabla `negociacion` estaba vacia. La lectura facil era "no ha aparecido nada lo
+bastante bueno". La verdadera era peor:
+
+`_abrir_negociacion`, en el bot de Telegram, es **el unico lugar del codigo que
+inserta en `negociacion`**. Empezaba asi:
+
+```python
+if o["tipo"] != "ml":
+    return "solo negocio en MercadoLibre por ahora"
+```
+
+Y desde que ML cerro su busqueda publica (§5d), **el 100% de las oportunidades vienen
+de Facebook**. O sea el boton [Negociar] las rechazaba todas, siempre. La tabla no se
+podia llenar ni apretando el boton.
+
+Mientras tanto `app/jobs/negociar_fb.py` — escrito, probado 9/9 en `bin/smoke_fb.py`,
+corriendo cada 20 minutos — leia esa tabla y reportaba `0 negociaciones`. Que se lee
+igual que "no habia nada bueno".
+
+> **Cuando un job lleva dias diciendo "0 de algo", la primera pregunta no es si la
+> logica esta bien: es si eso que cuenta tiene productor.** Tercera vez del mismo
+> patron: el boton [Enviar] a una cola que nadie leia (§5c), y ahora una tabla que
+> nadie podia llenar.
+
+### Lo que cambio
+
+**1. La puerta sale del bot a `app/negociacion.py`.** La usan los dos: el boton y,
+ahora, el job de alertas. Cada canal con su manija — ML abre la publicacion por id,
+Facebook por URL — y rechaza con motivo legible si falta la manija o el techo, en vez
+de aceptar y reventar a mitad de la negociacion con el vendedor esperando.
+
+**2. `modo.negociar_auto_inicio: true` — la negociacion arranca sola.** Hasta hoy el
+sistema llegaba hasta "te aviso" y el cierre lo hacia una persona.
+
+Lo que **no** cambia, y conviene tenerlo claro: la escalera de precios sigue siendo
+saludo → objetivo → mitad de camino → techo, nunca por sobre el techo; los topes por
+dia (12 en ML, 5 en Facebook), las pausas entre mensajes y los candados de cuenta
+quedan exactamente igual. Este interruptor decide **cuando empieza**, no cuanto se
+ofrece.
+
+**3. Un freno de calidad, porque el ojo que filtraba ya no esta.** Cuando apretabas el
+boton, mirabas la alerta y descartabas las que olian raro. Sin persona, ese filtro es
+un numero: solo arranca sola si el indice del producto tiene **≥ 5 muestras**
+(`compra_negociacion.min_muestras_auto`). Un P50 sacado de 2 muestras no es un precio
+de mercado, es una casualidad — y hoy mismo hubo dos indices envenenados (§5g).
+
+Lo que no pasa el freno **igual te llega** como alerta con boton, y la alerta **dice
+por que** no arranco sola. Callarlo seria repetir el error de fondo del dia.
+
+`bin/test_negociacion.py`: **10/10** contra la base de verdad, borrando lo que crea.
+
+### Lo que todavia falta para que se cierre una compra sola
+
+El camino esta completo y probado, pero necesita una sesion viva:
+
+| falta | quien puede | sin eso |
+|---|---|---|
+| `offline_access` en la app de ML | **tu**, en developers.mercadolibre.cl | ML no se puede negociar ni publicar |
+| sesion de Facebook (`bin/login-fb.sh`) | **tu**, por VNC | las negociaciones se abren y esperan en `por_saludar` |
+
+Las negociaciones que se abran mientras tanto **no se pierden**: quedan en cola y
+`negociar_fb` las toma en cuanto haya sesion. Se ven con `/negociaciones`.
+
 ---
 
 ## 6. Comandos

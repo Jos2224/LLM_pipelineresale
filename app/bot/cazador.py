@@ -59,8 +59,31 @@ def cmd_start(chat: str, arg: str) -> None:
     B.enviar("Emparejado ✅ Este chat recibe las ofertas.\n\n" + AYUDA, chat=chat)
 
 
+def _linea_ml() -> str:
+    """Estado REAL de la conexion con ML, no solo si alguna vez se conecto.
+
+    Decia "ML conectado: si" mirando unicamente si habia un ml_user_id
+    guardado. El 29-ago la conexion llevaba 11 horas muerta y /estado seguia
+    diciendo que si. Una pantalla de estado que no sabe distinguir "vivo" de
+    "hubo" es peor que no tenerla.
+    """
+    from datetime import datetime, timezone
+
+    ml = q1("SELECT ml_user_id, refresh_token, expira_en FROM oauth_ml WHERE id=1")
+    if not ml or not ml["ml_user_id"]:
+        return "ML conectado: NO — manda /conectar"
+    if ml["refresh_token"]:
+        return f"ML conectado: si, cuenta {ml['ml_user_id']} (se renueva sola)"
+    vivo = ml["expira_en"] and ml["expira_en"] > datetime.now(timezone.utc)
+    if vivo:
+        return (f"ML conectado: cuenta {ml['ml_user_id']} — ⚠️ SIN renovacion, "
+                "se muere hoy. Falta offline_access en la app de ML")
+    return (f"ML conectado: NO (el token de la cuenta {ml['ml_user_id']} vencio "
+            "y no se puede renovar). Marca offline_access en "
+            "developers.mercadolibre.cl y manda /conectar")
+
+
 def cmd_estado(chat: str) -> None:
-    ml = q1("SELECT ml_user_id FROM oauth_ml WHERE id=1")
     n_av = q1("SELECT count(*) n FROM oportunidad WHERE estado='avisada'")["n"]
     n_ng = q1("SELECT count(*) n FROM negociacion WHERE estado IN ('por_saludar','saludo','ofertando')")["n"]
     n_ac = q1("SELECT count(*) n FROM negociacion WHERE estado='acordado'")["n"]
@@ -69,7 +92,7 @@ def cmd_estado(chat: str) -> None:
                   WHERE NOT ok AND ts > now() - interval '24 hours'
                   GROUP BY job ORDER BY n DESC LIMIT 5""")
     l = [
-        f"ML conectado: {'si' if ml and ml['ml_user_id'] else 'NO — manda /conectar'}",
+        _linea_ml(),
         f"Cazando: {n_wl} busquedas",
         f"Ofertas esperando tu boton: {n_av}",
         f"Negociando ahora: {n_ng} · acordadas: {n_ac}",
@@ -133,7 +156,15 @@ def cmd_codigo(chat: str, arg: str) -> None:
         B.enviar(f"no sirvio: {str(e)[:250]}\nEl codigo dura pocos minutos — pide otro con /conectar",
                  chat=chat)
         return
-    B.enviar(f"conectado ✅ cuenta {tok.get('user_id')}\nYa empiezo a cazar.", chat=chat)
+    # El canje puede salir "bien" y aun asi dejar una conexion que se muere
+    # sola en 6 h. Eso paso el 29-ago y nadie se entero hasta la mañana
+    # siguiente, con medio dia de caza perdido. Ahora se avisa aca mismo.
+    aviso = ml_api.aviso_sin_refresh(tok)
+    if aviso:
+        B.enviar(f"conectado a la cuenta {tok.get('user_id')}\n\n{aviso}", chat=chat)
+        return
+    B.enviar(f"conectado ✅ cuenta {tok.get('user_id')}\n"
+             "Renovacion automatica activa. Ya empiezo a cazar.", chat=chat)
 
 
 def cmd_negociaciones(chat: str) -> None:

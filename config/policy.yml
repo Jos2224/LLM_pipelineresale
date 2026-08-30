@@ -117,6 +117,12 @@ compra_negociacion:
   paso_hacia_techo: 0.5
 
 ritmo:
+  # Items que el juez mira por vuelta. Un item juzgado que NO resulta
+  # oportunidad no deja rastro, asi que sigue siendo candidato: si el tope es
+  # mas chico que la cantidad de candidatos, los mas viejos no se miran nunca.
+  # Con 200 (el valor viejo) habia 244 items invisibles. Si el job dice TOPE,
+  # sube este numero.
+  score_lote: 1000
   ml_busquedas_por_ciclo: 25
   ml_pausa_seg: 1.2
   fb_publicaciones_dia: 5

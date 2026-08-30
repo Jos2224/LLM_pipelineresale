@@ -90,6 +90,11 @@ CATEGORIA_PALABRA = [
     (r"\b(all\s*in\s*one|computador|pc\s*escritorio|torre)\b", "computador"),
 ]
 
+# Categorias que son una MAQUINA COMPLETA. Ninguna se identifica por la pieza
+# que lleva adentro: un notebook con RTX 3050 es un notebook, no una RTX 3050.
+# Ver el bloque grande en `extraer()` — costo caro descubrirlo.
+EQUIPO_ENTERO = {"notebook", "computador", "celular", "tablet"}
+
 CONDICION = [
     (r"\b(reacondicionado|refurbished|refurb|remanufacturado)\b", "reacondicionado"),
     (r"\b(nuevo|sellado|sin\s*abrir|en\s*caja)\b", "nuevo"),
@@ -410,24 +415,39 @@ def extraer(titulo: str) -> dict:
     # 'RX 6600 XT' correcto de 0.85, que es peor: el XT vale bastante mas y
     # habrian quedado en el mismo estante.
     pz = _pieza(t)
-    # Un PC armado completo NO es su tarjeta de video: "PC Gamer con RTX 3050"
-    # quedaria en el mismo estante que una RTX 3050 suelta, que vale una
-    # fraccion. El equipo entero se identifica por lo que es.
-    if categoria == "computador":
-        if pz:
-            # Se guarda para armar el modelo del equipo, pero NO se usa como
-            # identidad: un PC entero no vale lo que su tarjeta sola.
-            gpu = pz[1]
-            pz = None
-        else:
-            gpu = None
+    # ---------------------------------------------------------------------
+    # UN EQUIPO ENTERO NO ES LA PIEZA QUE LLEVA ADENTRO.
+    #
+    # Esto valia solo para `computador` y por eso los notebooks se colaban. El
+    # 29-ago el estante "Nvidia RTX 3050" tenia adentro DOS notebooks:
+    #
+    #   ASUS TUF Dash F15 i7 + RTX 3050          650.000   <- notebook
+    #   Notebook Gamer ASUS TUF Dash F15         550.000   <- notebook
+    #   rtx 3050 6gb                             160.000   <- la tarjeta
+    #
+    # P50 = 550.000, o sea el precio de un notebook gamer. Con ese numero el
+    # bot marco como ganga una tarjeta de 160.000 que vale mas o menos eso.
+    # El multiplo es el numero del que cuelga el negocio: si el estante mezcla
+    # un equipo completo con una de sus piezas, el multiplo miente siempre.
+    #
+    # La regla es la misma para todos: si el aviso vende una MAQUINA, la
+    # identidad es la maquina. La pieza mencionada adentro es una spec.
+    if categoria in EQUIPO_ENTERO:
+        # Se guarda para armar el nombre si hace falta, pero NUNCA como
+        # identidad.
+        gpu = pz[1] if pz else None
+        pz = None
         cpu = None
         mc = re.search(r"\b(?:core\s*)?i([3579])\b", t) or re.search(r"\bryzen\s*([3579])\b", t)
         if mc:
             cpu = ("Ryzen " if "ryzen" in t else "i") + mc.group(1)
-        if cpu or gpu:
-            marca = marca or "Armado"
-            modelo = "PC " + " + ".join(x for x in (cpu, gpu) if x)
+        # Solo se INVENTA un nombre si no hay: un "TUF Dash F15" ya identifica
+        # el equipo mucho mejor que "Notebook i7 + RTX 3050", y pisarlo seria
+        # perder la unica parte buena del titulo.
+        if (cpu or gpu) and not modelo:
+            marca = marca or ("Armado" if categoria == "computador" else "Generico")
+            base = "PC" if categoria == "computador" else categoria.title()
+            modelo = base + " " + " + ".join(x for x in (cpu, gpu) if x)
             confianza = max(confianza, 0.7)
     if pz and pz[3] > confianza:
         marca, modelo, cat_pz, confianza = pz

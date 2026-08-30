@@ -27,7 +27,21 @@ from app.db import ex, q, q1
 from app.jobs import envuelto
 from app.pricing import banda_remate, evaluar
 
-LOTE = 200
+# Cuantos items mira por vuelta.
+#
+# Estaba en 200 fijo y **eso escondia oportunidades**: un item que se juzga y
+# NO resulta oportunidad no deja fila en `oportunidad`, asi que sigue siendo
+# candidato para siempre. Con el tope en 200 y 444 candidatos, los 244 mas
+# viejos no se miraban NUNCA — y una oportunidad ahi adentro era invisible,
+# que es exactamente lo contrario de para lo que existe este script.
+#
+# Subirlo es barato: 200 items tardan 3 segundos y corre cada 3 minutos.
+# Y si algun dia se vuelve a topar, ahora lo dice en la linea del job en vez
+# de callarselo.
+#
+# Se lee dentro de `correr()`, no aca arriba: al importar el modulo todavia no
+# tiene por que existir el archivo de reglas.
+LOTE_DEFECTO = 1000
 
 
 def _es_remate(crudo: dict, tipo: str) -> bool:
@@ -40,6 +54,7 @@ def _p50_para(pid: int, crudo: dict) -> tuple[float | None, str]:
 
 
 def correr() -> str:
+    lote = int(p("ritmo.score_lote", LOTE_DEFECTO))
     candidatos = q(
         """SELECT i.id, i.titulo, i.precio, i.crudo, f.tipo
            FROM item_raw i
@@ -47,7 +62,7 @@ def correr() -> str:
            LEFT JOIN oportunidad o ON o.item_raw = i.id
            WHERE i.normalizado = true AND o.id IS NULL AND i.precio IS NOT NULL
            ORDER BY i.visto_en DESC LIMIT %s""",
-        (LOTE,),
+        (lote,),
     )
     marcadas = increibles = baratos = 0
     tope_creible = float(p("compra.multiplo_maximo_creible", 12))
@@ -115,6 +130,10 @@ def correr() -> str:
     )
     extra = f", {increibles} por multiplo increible" if increibles else ""
     extra += f", {baratos} bajo el piso de valor" if baratos else ""
+    # Si se lleno el lote hay candidatos que NO se miraron esta vuelta. Decirlo:
+    # callarlo fue justo lo que escondio 244 items durante dias.
+    if len(candidatos) >= lote:
+        extra += f" · TOPE {lote}: quedaron items sin mirar, sube ritmo.score_lote"
     return (f"{len(candidatos)} evaluados, {marcadas} oportunidades, "
             f"{muertas} pasadas de precio{extra}")
 

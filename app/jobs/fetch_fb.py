@@ -2,8 +2,12 @@
 
 FB no tiene API para Marketplace. Automatizar ahi rompe sus terminos y el
 castigo es cerrarte la cuenta. Por eso:
-  - cuenta aparte, nunca la personal
-  - navegador con perfil persistente: se entra UNA vez, a mano, y queda
+  - **buscar va SIN sesion.** Es lo mas seguro que hay: sin cuenta abierta no
+    hay cuenta que cerrar. Marketplace muestra las tarjetas igual — medido el
+    29-ago, 219 items con las cookies vacias. La sesion solo hace falta para
+    publicar y para escribir mensajes, que son otros scripts.
+  - si igual hay una sesion abierta, tiene que ser la aprobada; si es otra o
+    es una personal, se aborta (fb_guard.verificar_lectura)
   - ritmo humano: 1 busqueda cada 3-5 min, nunca en paralelo
   - apagado por defecto (policy.yml: modo.fb_activo)
 
@@ -20,7 +24,7 @@ import random
 import re
 import time
 
-from app import fb_guard
+from app import fb_guard, tg
 from app.config import fb, p, watchlist
 from app.db import ex, q1
 from app.jobs import envuelto
@@ -75,6 +79,24 @@ def _precio(txt: str) -> int | None:
     return None
 
 
+# Plata que NO es chilena. Si esto aparece en la tarjeta, la tarjeta se tira.
+#
+# Segunda linea de defensa. La primera es el slug `santiagocl` en
+# config/facebook.yml; esta esta por si FB vuelve a mandarnos a otro pais, que
+# ya paso una vez. Un item de California no sirve para nada aca: no lo puedes
+# ir a buscar, y su precio en el indice corrompe el multiplo, que es el numero
+# del que cuelga todo el negocio.
+#
+# Se filtra por MONEDA y no por comuna a proposito: la moneda esta siempre en
+# la tarjeta, la comuna a veces no.
+MONEDA_EXTRANJERA = re.compile(
+    r"(US\$|USD|R\$|S/\.|€|£|\bARS\b|\bMXN\b|\bCOP\b|\bPEN\b|\bBOB\b)", re.I)
+
+
+def es_extranjera(txt: str) -> bool:
+    return bool(MONEDA_EXTRANJERA.search(txt or ""))
+
+
 # Insignias que FB pone alrededor del producto. No son el titulo.
 INSIGNIA = re.compile(
     r"^(reci[eé]n publicado|se env[ií]a a todo chile|oferta|"
@@ -103,9 +125,9 @@ def correr() -> str:
     except ImportError:
         return "falta playwright: docker compose --profile scraper build"
 
-    perfil = fb_guard.perfil_listo()
-    if not perfil:
-        return "falta el login de FB: correr bin/login-fb.sh una vez"
+    # Cazar no necesita cuenta: se leen paginas publicas. Si no hay perfil, se
+    # crea uno vacio y se busca anonimo. Ver fb_guard.verificar_lectura.
+    perfil = fb_guard.perfil_para_leer()
 
     fid = q1("SELECT id FROM fuente WHERE nombre = %s", (FUENTE,))["id"]
     kws = [k["q"] for k in (watchlist().get("keywords") or []) if k.get("activa", True)]
@@ -114,6 +136,8 @@ def correr() -> str:
     lo, hi = p("ritmo.fb_pausa_min", [3, 5])
 
     nuevos = 0
+    extranjeras = 0
+    vistas = 0
     # Un solo Chrome por vez sobre el perfil (ver fb_guard).
     if not fb_guard.tomar_turno("fetch_fb"):
         return "otro job de FB tiene el navegador; se hace en la proxima"
@@ -122,7 +146,7 @@ def correr() -> str:
             str(perfil), headless=True, viewport={"width": 1366, "height": 850},
             locale="es-CL", timezone_id="America/Santiago",
         )
-        permitido, motivo = fb_guard.verificar_o_avisar(ctx, "fetch_fb")
+        permitido, motivo = fb_guard.verificar_o_avisar(ctx, "fetch_fb", lectura=True)
         if not permitido:
             ctx.close()
             # Sin esto el turno quedaba tomado y los otros jobs de FB se
@@ -142,6 +166,10 @@ def correr() -> str:
                 href = (a.get_attribute("href") or "").split("?")[0]
                 txt = a.inner_text()
                 if not href or not txt:
+                    continue
+                vistas += 1
+                if es_extranjera(txt):
+                    extranjeras += 1
                     continue
                 titulo, comuna = _titulo_y_comuna(txt)
                 precio = _precio(txt)
@@ -171,7 +199,24 @@ def correr() -> str:
                 time.sleep(random.uniform(lo * 60, hi * 60))
         ctx.close()
     fb_guard.soltar_turno("fetch_fb")
-    return f"{len(kws)} busquedas FB, {nuevos} nuevos"
+
+    linea = f"{len(kws)} busquedas FB, {nuevos} nuevos"
+    if extranjeras:
+        linea += f", {extranjeras} descartados por moneda extranjera"
+    # Si TODO lo que llego es de otro pais, el problema no son las tarjetas: es
+    # que FB nos esta mostrando otra ciudad. Callarlo seria peor que el bug
+    # original — el ciclo diria "0 nuevos" y nadie sabria por que.
+    if vistas and extranjeras == vistas:
+        # Con el mismo freno de repeticion que el candado: el aviso sirve una
+        # vez, repetido cada 30 min se vuelve ruido y se silencia el bot.
+        if fb_guard._aviso_nuevo("fetch_fb", "pais equivocado"):
+            tg.PUBLICADOR.enviar(
+                f"⚠️ Facebook esta mostrando otro pais: las {vistas} tarjetas "
+                "venian en moneda extranjera y se descartaron todas.\n\n"
+                "Revisa <code>config/facebook.yml</code> → <code>buscar.url</code>: "
+                "la ciudad tiene que ser <b>santiagocl</b>, no <b>santiago</b>.")
+        linea += " — TODAS extranjeras, revisa buscar.url"
+    return linea
 
 
 if __name__ == "__main__":

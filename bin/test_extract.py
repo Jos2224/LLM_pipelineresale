@@ -25,6 +25,26 @@ CASOS = [
     # Un PC entero NO es su tarjeta de video: quedaria en el mismo estante que
     # una RTX 3050 suelta, que vale una fraccion.
     ("PC Gamer i5 16GB RTX 3050 SSD 1TB", "Armado", "PC i5 + RTX 3050", "computador", {"ram_gb": 16, "disco_gb": 1024}),
+    # Lo mismo vale para NOTEBOOKS, y ahi se colaban. Titulos reales del
+    # 29-ago que quedaron en el estante "Nvidia RTX 3050" con P50 550.000 y
+    # dejaron mintiendo el multiplo de la tarjeta suelta.
+    # Lo que se arregla aca es la MARCA y la CATEGORIA: antes salian
+    # "Nvidia / RTX 3050 / componente". Que el modelo quede en "TUF" en vez de
+    # "TUF Dash F15" es otra cosa y NO hace daño: "tuf" esta en la lista de
+    # nombres de linea de specs.py, asi que el sistema se niega a ponerle
+    # precio y te lo pregunta. Un estante que no existe es mejor que uno falso.
+    ("Notebook Gamer ASUS TUF Dash F15 (i7 / RTX 3050 / 16GB RAM / SSD 512GB)",
+     "Asus", "TUF", "notebook", {"ram_gb": 16, "disco_gb": 512}),
+    ("Notebook Gamer HP OMEN 15 / Ryzen 7 4800H / 16GB RAM / RTX2060",
+     "Hp", "Omen", "notebook", {"ram_gb": 16}),
+    # Sin nombre propio SI se arma uno, pero de notebook, no de tarjeta.
+    # Los "16gb" quedan FUERA de las specs a proposito: al lado dice
+    # "RTX 3050 6gb", y adivinar cual numero es la RAM y cual la VRAM es
+    # justo lo que no se hace — de las specs sale el estante de precios.
+    ("Notebook gamer i7 con RTX 3050 16gb",
+     "Generico", "Notebook i7 + RTX 3050", "notebook", {}),
+    # Y la tarjeta SUELTA tiene que seguir siendo la tarjeta.
+    ("rtx 3050 6gb", "Nvidia", "RTX 3050", "componente", {}),
     ("NOTEBOOK LENOVO THINKPAD T480 i5 8VA 16GB SSD 256 !!OFERTA!!",
      "Lenovo", "ThinkPad T480", "notebook", {"ram_gb": 16, "disco_gb": 256, "cpu": "I5"}),
     ("Thinkpad T480 i5-8250U 16gb 512gb ssd impecable",

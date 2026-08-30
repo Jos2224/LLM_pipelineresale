@@ -24,6 +24,19 @@ from app.db import ex, kv_get, kv_set, q1
 BASE = "https://api.mercadolibre.com"
 AUTH = "https://auth.mercadolibre.cl/authorization"
 
+# `offline_access` es lo que hace que ML entregue el refresh_token. Sin el, el
+# login funciona igual, dura 6 horas y despues se muere solo — que es
+# exactamente lo que paso el 29-ago: conectado a las 22:25, muerto a las 04:20,
+# y nadie se entero hasta la mañana.
+#
+# Va en DOS lados y hacen falta los dos:
+#   1. aca, en el link de login (esto)
+#   2. marcado en la app, en developers.mercadolibre.cl
+# Marcarlo solo en el panel no alcanza si el link no lo pide, y pedirlo en el
+# link no sirve si la app no lo tiene permitido. Por eso `canjear_codigo`
+# revisa que el refresh_token haya llegado de verdad y avisa fuerte si no.
+SCOPE = "offline_access%20read%20write"
+
 
 class SinToken(Exception):
     pass
@@ -60,6 +73,7 @@ def url_login() -> str:
     return (
         f"{AUTH}?response_type=code&client_id={ML_CLIENT_ID}"
         f"&redirect_uri={ML_REDIRECT_URI}&state={estado}"
+        f"&scope={SCOPE}"
         f"&code_challenge={challenge}&code_challenge_method=S256"
     )
 
@@ -87,6 +101,10 @@ def _guardar(tok: dict) -> None:
              actualizado = now()""",
         (tok.get("user_id"), tok["access_token"], tok.get("refresh_token"), expira),
     )
+    # Los permisos que ML concedio DE VERDAD. Es la unica forma de saber si
+    # `offline_access` quedo o no: el link se puede pedir igual y ML lo ignora
+    # en silencio si la app no lo tiene marcado.
+    kv_set("oauth_scope", str(tok.get("scope", "")))
 
 
 def canjear_codigo(code: str) -> dict:
@@ -116,6 +134,27 @@ def canjear_codigo(code: str) -> dict:
     return tok
 
 
+def aviso_sin_refresh(tok: dict) -> str | None:
+    """Texto de alarma si el login va a morir en 6 h, o None si quedo bien.
+
+    Se separa del canje a proposito: el canje ya guardo el token y la conexion
+    SIRVE — por 6 horas. Esto no es un error que aborte, es un aviso que tiene
+    que llegar AHORA y no cuando el token se muera de madrugada.
+    """
+    if tok.get("refresh_token"):
+        return None
+    return (
+        "⚠️ <b>Conectado, pero se va a morir en 6 horas.</b>\n\n"
+        "ML no entrego <code>refresh_token</code>, asi que no puedo renovar solo.\n"
+        f"Permisos que dio: <code>{tok.get('scope') or '(ninguno)'}</code>\n\n"
+        "Arreglo, una sola vez:\n"
+        "1. entra a <b>developers.mercadolibre.cl</b> → tu app <b>Cazador</b> → Editar\n"
+        "2. en <b>Scopes</b> marca <b>offline_access</b> (ademas de read y write)\n"
+        "3. guarda, y aca manda <b>/conectar</b> otra vez\n\n"
+        "Cuando quede bien, este aviso no aparece."
+    )
+
+
 def _refrescar(refresh_token: str) -> str:
     with httpx.Client(timeout=30.0) as c:
         r = c.post(f"{BASE}/oauth/token", data={
@@ -124,7 +163,11 @@ def _refrescar(refresh_token: str) -> str:
             "client_secret": ML_CLIENT_SECRET,
             "refresh_token": refresh_token,
         }, headers={"Accept": "application/json"})
-        r.raise_for_status()
+        # Igual que en el canje: `raise_for_status` tira el cuerpo a la basura y
+        # deja un "400" pelado que no dice nada. ML explica el motivo ahi.
+        if r.status_code >= 400:
+            raise SinToken(f"no pude renovar el token (ML {r.status_code}: "
+                           f"{r.text[:160]}). Manda /conectar de nuevo")
         tok = r.json()
     _guardar(tok)
     return tok["access_token"]
@@ -137,7 +180,10 @@ def token() -> str:
     if fila["expira_en"] and fila["expira_en"] > datetime.now(timezone.utc):
         return fila["access_token"]
     if not fila["refresh_token"]:
-        raise SinToken("token vencido y sin refresh token: hay que volver a entrar")
+        raise SinToken(
+            "el token vencio y no hay refresh_token: a la app de ML le falta "
+            "el permiso offline_access. Marcalo en developers.mercadolibre.cl "
+            "y manda /conectar")
     return _refrescar(fila["refresh_token"])
 
 

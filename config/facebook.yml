@@ -44,5 +44,18 @@ item:
   boton_mensaje: 'div[aria-label="Enviar mensaje"], div[aria-label="Message"], span:has-text("Enviar mensaje")'
 
 buscar:
-  url: https://www.facebook.com/marketplace/santiago/search?query={}&sortBy=creation_time_descend
+  # OJO CON EL NOMBRE DE LA CIUDAD. Es `santiagocl`, no `santiago`.
+  #
+  # `santiago` NO EXISTE como ciudad de Marketplace: FB no reconoce el slug,
+  # te redirige a /marketplace/ pelado y te muestra la ciudad que el elija —
+  # midiendolo el 29-ago, Santa Clara, California, con precios en US$. De 527
+  # items juntados asi, 75 eran de Estados Unidos.
+  #
+  # Se descubrio porque salio "Santa Clara" donde tenia que salir "Santiago".
+  # Hay varios Santiago en el mundo (Santiago de Cali es `santiagodecali`), y
+  # el nuestro lleva el codigo de pais pegado.
+  #
+  # Otras ciudades de Chile, por si algun dia amplias:
+  #   valparaiso · concepcion · laserena · antofagasta · temuco
+  url: https://www.facebook.com/marketplace/santiagocl/search?query={}&sortBy=creation_time_descend
   resultado: 'a[href*="/marketplace/item/"]'

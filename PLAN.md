@@ -60,6 +60,16 @@ Redirect URI:  https://TU-SERVIDOR.ejemplo.net/
 Scopes:        read, write, offline_access
 ```
 
+> **`offline_access` no es opcional y es facil que se pase.** Es el permiso que
+> deja renovar el token solo. Sin el todo funciona igual... por 6 horas, y
+> despues se apaga sin avisar. Paso el 29-ago: conectado a las 22:25, muerto a
+> las 04:20, y `/estado` seguia diciendo "ML conectado: si".
+>
+> Si ya creaste la app sin ese permiso: **Editar → Scopes → marca
+> `offline_access` → guardar**, y despues `/conectar` de nuevo en el bot.
+> Ahora el bot revisa que el permiso haya llegado y te avisa en el mismo
+> mensaje si falta, en vez de dejarte descubrirlo al otro dia.
+
 4. Te da dos textos: `client_id` y `client_secret`
 
 Esos dos **no son tu contraseña**: son una llave de una sola puerta y la revocas en un
@@ -83,6 +93,11 @@ Ahi el bot ya puede leer el mercado, publicar, contestar preguntas y avisarte de
 El `state` se valida, asi que la URL sirve una sola vez.
 
 ### PASO 4 · Facebook — cuando quieras, es el ultimo
+
+> **Para CAZAR ya no hace falta.** Desde el 29-ago la busqueda de precios anda
+> sin sesion (§5g). Este paso enciende las otras dos cosas: **publicar** en
+> Marketplace y **contestar** mensajes de compradores. Mientras no lo hagas,
+> esas dos quedan apagadas y el resto funciona igual.
 
 **`ssh -X` NO funciona en el servidor** — falta `xorg-xauth` y el drop-in
 `10-server-hardening.conf` pone `X11Forwarding no`, que gana por ser el primero que
@@ -657,6 +672,100 @@ Misma leccion, otra vez, en `ventas_ml.py`: un `except Exception` a secas report
 existe (`mi_id` en vez de `usuario_id`). **Atrapar solo la excepcion que se sabe
 manejar** — si no, un error de programacion se disfraza de problema de configuracion y
 manda a buscar al lado equivocado.
+
+## 5g. Auditoria del 29-ago — la caza llevaba 15 horas muerta
+
+Tres cosas apagadas a la vez, y ninguna habia avisado. Ese es el tema de fondo del
+dia: **los tres fallos eran silenciosos.**
+
+### 1. El token de ML se murio de madrugada
+
+ML no entrego `refresh_token`, asi que el token duro sus 6 horas y se acabo.
+Conectado 22:25, muerto 04:20, descubierto 15:05.
+
+La causa es un permiso que falta: **`offline_access`**. Va en dos lados y hacen falta
+los dos — marcado en la app de developers.mercadolibre.cl, **y pedido en el link de
+login**, que es lo que faltaba en el codigo (`ml_api.SCOPE`).
+
+Lo que se arreglo para que no vuelva a pasar callado:
+
+- el link de login pide el scope
+- se guarda el `scope` que ML **concedio de verdad** (`kv.oauth_scope`) — es la unica
+  forma de saberlo, porque pedirlo y que te lo den son dos cosas distintas
+- al conectar, si no llego el refresh token, el bot te lo dice **en ese mismo
+  mensaje**, con los 3 pasos para arreglarlo
+- `/estado` distingue *conectado* de *hubo una conexion*. Antes miraba solo si habia
+  un `ml_user_id` guardado y decia "si" con la conexion muerta hace 11 horas
+- `_refrescar` ya no se traga el cuerpo del error de ML (la misma leccion de §5f, que
+  ya habia costado una vez)
+
+### 2. El candado de cuenta mataba la caza
+
+El 28-ago se le puso a `fetch_fb` el mismo candado que a publicar y a responder. Pero
+**buscar precios no toca ninguna cuenta**: lee paginas publicas. Con la sesion caida,
+el candado apago la unica fuente de caza que queda desde que ML cerro la suya.
+
+Y no era necesario: a las 03:33, con las cookies ya vacias, `fetch_fb` habia juntado
+219 items. **Sin sesion funciona.** El candado lo apago a las 03:54.
+
+Ahora hay dos candados, y la diferencia es una sola fila:
+
+| situacion | publicar / responder | buscar precios |
+|---|---|---|
+| sin sesion | ✋ no | ✅ **si** — anonimo, no toca nada |
+| cuenta desechable aprobada | ✅ si | ✅ si |
+| cuenta personal abierta | ✋ no | ✋ **no** |
+| cuenta que nunca aprobaste | ✋ no | ✋ no |
+
+Buscar sin sesion es **mas** seguro que buscar con sesion, no menos: sin cuenta
+abierta no hay cuenta que FB pueda cerrar. Lo que sigue prohibido es navegar
+*logueado con tu cuenta personal*, que es lo que el candado siempre quiso evitar.
+
+### 3. Facebook nos estaba mostrando California
+
+El hallazgo caro del dia, y salio de mirar la salida de una prueba en vez de darla por
+buena porque "trajo 24 resultados".
+
+```
+buscar.url  .../marketplace/santiago/search?query={}     <- 24 resultados... de Santa Clara, CA
+buscar.url  .../marketplace/santiagocl/search?query={}   <- 24 resultados de Maipu, Ñuñoa, Las Condes
+```
+
+**`santiago` no existe como ciudad de Marketplace.** FB no reconoce el slug, redirige a
+`/marketplace/` pelado y te muestra la ciudad que el elija. Hay varios Santiago en el
+mundo — Santiago de Cali es `santiagodecali` — y el nuestro lleva el codigo de pais
+pegado: **`santiagocl`**.
+
+De los 527 items juntados, **75 eran de Estados Unidos**. No corrompieron el indice de
+precios de milagro: como la tarjeta gringa trae el precio pegado al titulo
+(`US$200 Lenovo ThinkPad E570`), `_precio` no lo reconocia y quedaban sin precio, y sin
+precio no entran al indice. Suerte, no diseño. Los 75 se borraron.
+
+Como red por si FB vuelve a cambiar de ciudad, `fetch_fb` ahora **descarta toda tarjeta
+en moneda extranjera** (US$, USD, R$, €, S/., ARS, MXN, COP…) y lo dice en la linea del
+job. Si vienen TODAS extranjeras, te manda un Telegram diciendo que revises
+`buscar.url` — el error se vuelve visible en vez de aparecer como "0 nuevos".
+9 casos en `bin/test_fb.py`, incluidas las dos trampas: `USB-C` no es `USD`, y
+"MacBook comprado en USA" se paga en pesos.
+
+### 4. 140 mensajes iguales en un dia
+
+Con FB sin sesion, los tres jobs (15, 20 y 30 min) mandaban un Telegram **cada vuelta**:
+13 por hora, todos identicos. Un aviso asi no se lee — se silencia el bot, y con el se
+pierden las alertas de oportunidad, que son la razon de que el bot exista.
+
+Ahora el mismo aviso sale **una vez por hora** (`fb_guard.AVISO_MIN`). La llave incluye
+el motivo: si el problema **cambia** — de "no hay sesion" a "la sesion cambio de
+cuenta" — eso si es noticia y sale al toque. Si Redis se cae, avisa de mas: mejor
+repetir que tragarse un problema.
+
+### Lo que se probo
+
+- `bin/test_fb.py`: **51/51** — 8 candado de cuenta, 7 candado de lectura,
+  6 anti-ruido, 6 emparejar, 6 ofertas, 9 tarjetas, 9 moneda extranjera ✓
+- Busqueda anonima real contra FB: 24 tarjetas, **0 extranjeras**, comunas chilenas ✓
+- Los 75 items gringos borrados; los 452 chilenos intactos ✓
+- El indice de precios no habia sido tocado por ellos (0 de 75 tenian precio) ✓
 
 ---
 

@@ -90,6 +90,109 @@ def probar_candado() -> int:
     return fallos
 
 
+# ------------------------------------------------ 1b. candado de LECTURA
+# El candado suave, el que usa fetch_fb para buscar precios.
+#
+# Una sola diferencia con el de arriba, y es la fila 1: sin sesion DEJA PASAR,
+# porque buscar no toca ninguna cuenta. Todo lo demas tiene que seguir cerrado
+# igual — sobre todo la personal, que es lo que el candado protege.
+CASOS_LECTURA = [
+    ("sin sesion: busca anonimo, es lo mas seguro que hay",
+     {"id": DESECHABLE, "nombre": "Ventas FM", "aprobada": True}, None, [], True),
+
+    ("sin sesion y sin ninguna cuenta aprobada: igual busca",
+     None, None, [], True),
+
+    ("con la cuenta desechable abierta: busca",
+     {"id": DESECHABLE, "nombre": "Ventas FM", "aprobada": True}, DESECHABLE, [], True),
+
+    ("con la PERSONAL abierta: NO mira nada, aunque solo sea leer",
+     {"id": DESECHABLE, "nombre": "Ventas FM", "aprobada": True}, PERSONAL, [PERSONAL], False),
+
+    ("la personal abierta sin estar en la lista negra: tampoco",
+     {"id": DESECHABLE, "nombre": "Ventas FM", "aprobada": True}, PERSONAL, [], False),
+
+    ("una sesion que nunca aprobaste: no se navega con ella",
+     None, OTRA, [], False),
+
+    ("se cambio a una tercera cuenta: abortado",
+     {"id": DESECHABLE, "nombre": "Ventas FM", "aprobada": True}, OTRA, [], False),
+]
+
+
+def probar_candado_lectura() -> int:
+    fallos = 0
+    tmp = Path(tempfile.mkdtemp())
+    fb_guard.PERFIL = tmp
+    fb_guard.FICHA = tmp / "cuenta.json"
+
+    for nombre, ficha, en_sesion, prohibidas, esperado in CASOS_LECTURA:
+        if ficha is None:
+            fb_guard.FICHA.unlink(missing_ok=True)
+        else:
+            fb_guard.FICHA.write_text(json.dumps(ficha), encoding="utf-8")
+        fb_guard.p = lambda ruta, defecto=None, _pr=prohibidas: (
+            _pr if ruta == "facebook.cuentas_prohibidas" else defecto)
+
+        ok, motivo = fb_guard.verificar_lectura(CtxFalso(en_sesion))
+        if ok != esperado:
+            fallos += 1
+            print(f"✖ lectura · {nombre}\n    permitio={ok} esperado={esperado} · {motivo}")
+        else:
+            print(f"✓ lectura · {nombre}")
+    return fallos
+
+
+# ------------------------------------------------- 1c. no repetir el aviso
+# 13 mensajes por hora, todos iguales, hacen que silencies el bot — y ahi
+# pierdes las alertas de oportunidad. El aviso sale una vez; si el motivo
+# CAMBIA, eso si es noticia y sale al toque.
+def probar_antiruido() -> int:
+    fallos = 0
+    vistos: set[str] = set()
+
+    # Redis falso: `set(nx=True)` devuelve True solo la primera vez.
+    class RedisFalso:
+        def set(self, llave, _v, nx=False, ex=None):
+            if llave in vistos:
+                return None
+            vistos.add(llave)
+            return True
+
+    original = fb_guard._R
+    fb_guard._R = RedisFalso()
+    try:
+        casos = [
+            ("fetch_fb", "no hay sesion", True, "el primero siempre pasa"),
+            ("fetch_fb", "no hay sesion", False, "el mismo motivo se calla"),
+            ("fetch_fb", "no hay sesion", False, "y se sigue callando"),
+            ("reply_fb", "no hay sesion", True, "otro job avisa por su cuenta"),
+            ("fetch_fb", "la sesion cambio de cuenta", True, "motivo NUEVO: pasa"),
+        ]
+        for job, motivo, esperado, por_que in casos:
+            salio = fb_guard._aviso_nuevo(job, motivo)
+            if salio != esperado:
+                fallos += 1
+                print(f"✖ ruido · {por_que}: aviso={salio} esperado={esperado}")
+            else:
+                print(f"✓ ruido · {por_que}")
+
+        # Si Redis se cae, mejor avisar de mas que tragarse un problema.
+        class RedisMuerto:
+            def set(self, *a, **k):
+                raise RuntimeError("redis caido")
+
+        fb_guard._R = RedisMuerto()
+        if not fb_guard._aviso_nuevo("fetch_fb", "no hay sesion"):
+            fallos += 1
+            print("✖ ruido · con Redis caido tiene que avisar igual")
+        else:
+            print("✓ ruido · con Redis caido avisa igual")
+    finally:
+        fb_guard._R = original
+    return fallos
+
+
 # --------------------------------------------------------- 2. emparejar
 ACTIVAS = [
     {"id": 1, "titulo": "Notebook Lenovo ThinkPad T480 i5 16GB 512GB SSD"},
@@ -181,6 +284,43 @@ CASOS_TARJETA = [
 ]
 
 
+# ------------------------------------------- 4b. tarjetas de otro pais
+# El slug `santiago` (sin CL) mandaba a Santa Clara, California. Esto es la
+# red por si FB vuelve a cambiar de ciudad: un item gringo no se puede ir a
+# buscar y su precio corrompe el indice.
+CASOS_MONEDA = [
+    ("Recién publicado\nUS$200\nLenovo ThinkPad E570\nSanta Clara, CA", True,
+     "dolar con simbolo"),
+    ("$60 USD\nThinkPad T400\nSan Francisco, CA", True, "dolar escrito"),
+    ("R$ 1.200\nNotebook Dell\nSão Paulo", True, "real brasileño"),
+    ("€250\nThinkPad X1\nMadrid", True, "euro"),
+    ("S/. 900\nLaptop HP\nLima", True, "sol peruano"),
+    ("$100.000\nLenovo ThinkPad X280 (Bateria mala)\nMaipú, RM", False,
+     "chilena normal"),
+    ("Recién publicado\nGratis\nCargador Lenovo 65W\nÑuñoa, RM", False,
+     "gratis igual es chilena"),
+    # Trampa: "USB" empieza igual que "USD" y no es plata.
+    ("$70.000\ndocking lenovo hybrid USB-C with USB-A\nRecoleta, RM", False,
+     "USB no es USD"),
+    # Trampa: un titulo que MENCIONA dolares pero cuesta pesos.
+    ("$450.000\nMacBook comprado en USA sin uso\nLas Condes, RM", False,
+     "USA no es una moneda"),
+]
+
+
+def probar_moneda() -> int:
+    from app.jobs.fetch_fb import es_extranjera
+    fallos = 0
+    for txt, esperado, por_que in CASOS_MONEDA:
+        salio = es_extranjera(txt)
+        if salio != esperado:
+            fallos += 1
+            print(f"✖ moneda · {por_que}: extranjera={salio} esperado={esperado}")
+        else:
+            print(f"✓ moneda · {por_que}: {'se tira' if salio else 'se guarda'}")
+    return fallos
+
+
 def probar_tarjetas() -> int:
     from app.jobs.fetch_fb import _precio, _titulo_y_comuna
     fallos = 0
@@ -206,12 +346,16 @@ def probar_tarjetas() -> int:
 def main() -> int:
     total = 0
     for titulo, fn in (("candado de cuenta", probar_candado),
+                       ("candado de lectura (buscar precios)", probar_candado_lectura),
+                       ("no repetir el mismo aviso", probar_antiruido),
                        ("emparejar hilo con publicacion", probar_emparejar),
                        ("leer ofertas de compradores", probar_ofertas),
-                       ("tarjetas de Marketplace", probar_tarjetas)):
+                       ("tarjetas de Marketplace", probar_tarjetas),
+                       ("descartar tarjetas de otro pais", probar_moneda)):
         print(f"\n--- {titulo}")
         total += fn()
-    n = len(CASOS_CANDADO) + len(CASOS_HILO) + len(CASOS_OFERTA) + len(CASOS_TARJETA)
+    n = (len(CASOS_CANDADO) + len(CASOS_LECTURA) + 6 + len(CASOS_HILO)
+         + len(CASOS_OFERTA) + len(CASOS_TARJETA) + len(CASOS_MONEDA))
     print(f"\n{n - total}/{n} casos OK · {total} fallos")
     return total
 
